@@ -1,0 +1,3 @@
+LUNA16-subset-0: https://zenodo.org/records/3723295 - CT images from lung nodule analysis challenge
+ct-covid-nifti: https://www.kaggle.com/datasets/andrewmvd/covid19-ct-scans?resource=download - covid 19 ct scans
+2 AC_CT_TBody: https://www.embodi3d.com/files/file/27111-full-body-ct-higher-threshold/ - .nnrd CT scan from biomedical 3D printing forum. More full body scans to be found on the site. 

@@ -1,0 +1,6 @@
+pytorch
+monai
+metaimageio # for reading metaio files
+nibabel # for reading nifti files
+pynrrd # for reading nrrd files
+matplotlib
