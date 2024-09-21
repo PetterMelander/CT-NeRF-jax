@@ -172,7 +172,7 @@ def stratified_sampling(
     else:
         n_samples = torch.ones(ray_bounds.shape[0], device=ray_bounds.device) * n_samples
     
-    for i in range(ray_bounds.shape[0]):
+    for i in range(ray_bounds.shape[0]): # could make faster by creating range matrix and multiplying by bound size vectors
         interval_size = (ray_bounds[i, 1] - ray_bounds[i, 0]) / n_samples[i]
         uniform_samples = torch.arange(ray_bounds[i, 0], ray_bounds[i, 1], interval_size, device=ray_bounds.device)
         perturbation = torch.rand(int(n_samples[i]), device=uniform_samples.device) * interval_size # uniform_samples is [lower, upper) so perturbation should be purely additive
