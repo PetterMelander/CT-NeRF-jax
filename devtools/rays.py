@@ -189,13 +189,23 @@ def stratified_sampling(
     Args:
         ray_bounds (torch.Tensor): shape (B, 2). Contains the two t bounds
         n_samples (int): number of samples
-        start_pos (torch.Tensor): shape (B, 3)
-        heading_vector (torch.Tensor): shape (B, 3)
         proportional_sampling (bool): whether to sample proportional to the length of the ray
 
     Returns:
         torch.Tensor: shape (B, n_samples). Contains the sampled t's, and nan if there is no sample.
     """
+
+    interval_size = (ray_bounds[:, 1] - ray_bounds[:, 0]).unsqueeze(1) / n_samples
+
+    uniform_samples = torch.arange(0, n_samples, device=ray_bounds.device).repeat(ray_bounds.shape[0], 1)
+    uniform_samples = interval_size * uniform_samples + ray_bounds[:, 0].unsqueeze(1) # This rescales each row to [t_min, t_max)
+
+    perturbation = torch.rand(ray_bounds.shape[0], n_samples, device=ray_bounds.device) * interval_size
+
+    return uniform_samples + perturbation
+
+
+
 
     samples = torch.zeros(ray_bounds.shape[0], n_samples, device=ray_bounds.device)
 
@@ -203,6 +213,7 @@ def stratified_sampling(
         n_samples = n_samples * torch.abs(ray_bounds[:, 1] - ray_bounds[:, 0]) / 2
     else:
         n_samples = torch.ones(ray_bounds.shape[0], device=ray_bounds.device) * n_samples
+
 
     for i in range(ray_bounds.shape[0]): # TODO: could avoid slow loop by creating range matrix and multiplying by bound size vectors
         interval_size = (ray_bounds[i, 1] - ray_bounds[i, 0]) / n_samples[i]
@@ -286,5 +297,5 @@ def test_start_pos():
     # print(f"sampled points:\n{sampled_points}")
 
 
-if __name__ == "__main__":
-    test_get_samples()
+# if __name__ == "__main__":
+    # test_get_samples()

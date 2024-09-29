@@ -38,10 +38,10 @@ class XRayDataset(Dataset):
         positions = torch.zeros((self.len, 2))
         x = torch.linspace(0, images[0].size[0] - 1, images[0].size[0])
         y = torch.linspace(0, images[0].size[1] - 1, images[0].size[1])
-        x, y = torch.meshgrid(x, y)
+        x, y = torch.meshgrid(x, y, indexing="ij")
         positions = torch.stack((x, y), dim=-1).reshape(-1, 2).repeat(len(images), 1)
 
-        # setup correpsponding intensities
+        # setup corresponding intensities
         index = 0
         self.intensities = torch.zeros(self.len)
         for image in images:

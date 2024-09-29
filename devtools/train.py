@@ -15,7 +15,7 @@ import math
 
 def train():
 
-    torch.autograd.set_detect_anomaly(True)
+    # torch.autograd.set_detect_anomaly(True)
 
     run = Run()
     run["hparams"] = {
