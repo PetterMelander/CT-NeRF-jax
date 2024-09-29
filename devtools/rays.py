@@ -205,28 +205,6 @@ def stratified_sampling(
     return uniform_samples + perturbation
 
 
-
-
-    samples = torch.zeros(ray_bounds.shape[0], n_samples, device=ray_bounds.device)
-
-    if proportional_sampling:
-        n_samples = n_samples * torch.abs(ray_bounds[:, 1] - ray_bounds[:, 0]) / 2
-    else:
-        n_samples = torch.ones(ray_bounds.shape[0], device=ray_bounds.device) * n_samples
-
-
-    for i in range(ray_bounds.shape[0]): # TODO: could avoid slow loop by creating range matrix and multiplying by bound size vectors
-        interval_size = (ray_bounds[i, 1] - ray_bounds[i, 0]) / n_samples[i]
-        if interval_size != 0:
-            uniform_samples = torch.arange(ray_bounds[i, 0], ray_bounds[i, 1] - 1e-6, interval_size, device=ray_bounds.device)
-        else:
-            uniform_samples = torch.tensor([ray_bounds[i, 0]], device=ray_bounds.device)
-        perturbation = torch.rand(len(uniform_samples), device=uniform_samples.device) * interval_size # uniform_samples is [lower, upper) so perturbation should be purely additive
-        samples[i,:len(uniform_samples)] = uniform_samples + perturbation
-        samples[i, len(uniform_samples):] = torch.nan
-    return samples
-
-
 @torch.no_grad()
 def get_sampling_distances(t_samples: torch.Tensor, ray_bounds: torch.Tensor) -> torch.Tensor:
     """
@@ -243,7 +221,6 @@ def get_sampling_distances(t_samples: torch.Tensor, ray_bounds: torch.Tensor) ->
     Returns:
         torch.Tensor: shape (B, n_samples)
     """
-    # TODO: does this handle nan samples gracefully?
     far_bounds = ray_bounds[:, 1]
     sample_distances = torch.zeros(t_samples.shape[0], t_samples.shape[1], device=t_samples.device)
     sample_distances[:, :-1] = t_samples[:, 1:] - t_samples[:, :-1]

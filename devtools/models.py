@@ -45,7 +45,7 @@ class XRayModel(torch.nn.Module):
         """
         Implements the gamma function from the original NeRF paper. The sin and cos functions
         are not ordered in the same way as in the paper, but this does not matter as they are
-        input into and MLP which is input order agnostic.
+        input into and MLP which treats all inputs equally.
         """
         gamma = torch.zeros(p.shape[0], L*2, device=p.device)
         angles = torch.pow(2, torch.arange(L, device=p.device)).expand(p.shape[0], L) * math.pi*p.unsqueeze(1)

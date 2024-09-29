@@ -15,14 +15,12 @@ import math
 
 def train():
 
-    # torch.autograd.set_detect_anomaly(True)
-
     run = Run()
     run["hparams"] = {
         "n_layers": 8,
         "layer_dim": 256,
         "L": 10,
-        "lr": 0.001,
+        "lr": 0.0001,
         "batch_size": 4096,
         "num_samples" : 128,
         "proportional_sampling": False,
@@ -66,7 +64,6 @@ def train():
             optimizer.zero_grad()
             output = model(sampled_points)
             output = output.reshape(run["hparams"]["batch_size"], run["hparams"]["num_samples"])
-            # output = torch.nan_to_num(output)
             output = log_beer_lambert_law(output, sampling_distances, s=run["hparams"]["s"], k=run["hparams"]["k"])
             loss = mse_loss(output, intensities)
             loss = torch.sum(loss)
