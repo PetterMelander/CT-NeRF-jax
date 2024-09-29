@@ -1,4 +1,5 @@
 .vscode
+.aim
 
 # Data files
 *.nii

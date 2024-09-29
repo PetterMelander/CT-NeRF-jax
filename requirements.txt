@@ -5,3 +5,6 @@ nibabel # for reading nifti files
 pynrrd # for reading nrrd files
 matplotlib
 tqdm
+aim
+plotly # for aim figures
+pandas # for plotly express

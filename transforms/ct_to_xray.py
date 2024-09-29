@@ -9,10 +9,10 @@ from monai.transforms.spatial.functional import rotate
 
 
 class NrrdReader(monai.transforms.Transform):
-
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
 
     def __call__(self, path: Path, device: str = "cpu") -> torch.Tensor:
         """
@@ -39,6 +39,7 @@ class NrrdReader(monai.transforms.Transform):
 class CtToXray(monai.transforms.Transform):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
 
     def __call__(
             self, 

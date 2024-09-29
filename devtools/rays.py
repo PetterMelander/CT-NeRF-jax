@@ -1,16 +1,18 @@
 import torch
-from dataloading import XRayDataset
-from utils import get_data_dir
-from torch.utils.data import DataLoader
 
 
 
-def log_beer_lambert_law(attenuation_coeffs: torch.Tensor, positions: torch.Tensor) -> torch.Tensor:
+def log_beer_lambert_law(
+        attenuation_coeffs: torch.Tensor, 
+        distances: torch.Tensor,
+        s: float = 1,
+        k: float = 0
+    ) -> torch.Tensor:
     """ 
     Uses Beer-Lambert law to calculate transmittance given the
     attenuation coefficients and positions of sampled points along ray.
-    Uses a version of the law where the logarithm of the transmittance
-    is returned, since that is what is used as ground truth for scaling reasons.
+    Uses a version of the law that has been adjusted for scaling of the
+    transmittance by adding k, taking the log, and dividing by s.
 
     Args:
         attenuation_coeffs (torch.Tensor): shape (B, N)
@@ -19,15 +21,15 @@ def log_beer_lambert_law(attenuation_coeffs: torch.Tensor, positions: torch.Tens
     Returns:
         torch.Tensor: shape (B,)
     """
-    return -torch.sum(attenuation_coeffs * positions, dim=1)
+    exp = torch.exp(-torch.sum(attenuation_coeffs * distances, dim=1))
+    return torch.log(exp + k) / s
 
 
-def get_sampled_points(
+@torch.no_grad()
+def get_rays(
         pixel_pos: torch.Tensor, 
         angle: torch.Tensor, 
-        img_shape: torch.Tensor,
-        n_samples: int,
-        proportional_sampling: bool = False
+        img_shape: torch.Tensor, # TODO: does this really need to be batched?
         ) -> torch.Tensor:
     """
     Get the sampled points along the ray between the near and far bound of the image using the stratified
@@ -41,19 +43,42 @@ def get_sampled_points(
         proportional_sampling (bool): whether to sample proportional to the length of the ray
 
     Returns:
-        torch.Tensor: shape (B, n_samples, 3)
+        torch.Tensor: shape (B * n_samples, 3)
     """
 
     start_pos, heading_vector = get_start_pos(pixel_pos, angle, img_shape)
     ray_bounds = get_ray_bounds(start_pos, heading_vector)
+    
+    return start_pos, heading_vector, ray_bounds
+
+
+@torch.no_grad()
+def get_samples(
+        start_pos: torch.Tensor, 
+        heading_vector: torch.Tensor, 
+        ray_bounds: torch.Tensor,
+        n_samples: int,
+        proportional_sampling: bool = False
+        ) -> torch.Tensor:
+
     t_samples = stratified_sampling(ray_bounds, n_samples, proportional_sampling)
+    sampling_distances = get_sampling_distances(t_samples, ray_bounds)
 
     # sampled points should have shape (B, n_samples, 3)
     sampled_points = start_pos.unsqueeze(1) + t_samples.unsqueeze(2) * heading_vector.unsqueeze(1)
+    sampled_points = sampled_points.reshape(-1, 3)
 
-    return sampled_points
+    # Handle nan values (where fewer than N samples were taken) by setting the points to 
+    # the dummy location (1000, 1000, 1000) and the distance to 0. Distance 0 guarantees
+    # the value of the dummy point won't affect the output.
+    sampled_points = torch.nan_to_num(sampled_points, nan=1000)
+    sampling_distances = torch.nan_to_num(sampling_distances, nan=0)
 
-def get_start_pos( # TODO: do all these computations in the dataloader so they don't have to be done over and over
+    return sampled_points, sampling_distances
+
+
+@torch.no_grad()
+def get_start_pos(
         pixel_pos: torch.Tensor, 
         angle: torch.Tensor, 
         img_shape: torch.Tensor
@@ -84,6 +109,7 @@ def get_start_pos( # TODO: do all these computations in the dataloader so they d
     return start_pos, heading_vector
 
 
+@torch.no_grad()
 def _create_z_rotation_matrix(angles):
     """
     Create a batch of 3D rotation matrices for rotations around the z-axis. Also returns the heading vector.
@@ -104,11 +130,12 @@ def _create_z_rotation_matrix(angles):
     rotation_matrices[:, 1, 1] = cos_angles
     rotation_matrices[:, 2, 2] = 1
 
-    heading_vector = -torch.stack((cos_angles, sin_angles, torch.zeros(angles.shape[0])), dim=1) # TODO: decide on a coordinate system. Using the same coordinate system as images in pytorch means the x-axis points away from the viewer and the z-axis points down.
+    heading_vector = -torch.stack((cos_angles, sin_angles, torch.zeros(angles.shape[0], device=angles.device)), dim=1) # TODO: decide on a coordinate system. Using the same coordinate system as images in pytorch means the x-axis points away from the viewer and the z-axis points down.
     
     return rotation_matrices, heading_vector
 
 
+@torch.no_grad()
 def get_ray_bounds(start_pos: torch.Tensor, heading_vector: torch.Tensor) -> torch.Tensor:
     """
     Given a start position (a, b, c) and a direction vector (v_x, v_y, 0), a ray can be parameterized as
@@ -131,15 +158,20 @@ def get_ray_bounds(start_pos: torch.Tensor, heading_vector: torch.Tensor) -> tor
     v_x = heading_vector[:,0]
     v_y = heading_vector[:,1]
 
-    p_half = (a*v_x + b*v_y) / (v_x**2 + v_y**2)
-    q = (a**2 + b**2 - 1) / (v_x**2 + v_y**2)
+    # p_half = (a*v_x + b*v_y) / (v_x**2 + v_y**2)
+    # q = (a**2 + b**2 - 1) / (v_x**2 + v_y**2)
+    p_half = (a*v_x + b*v_y)
+    q = (a**2 + b**2 - 1)
+    sq_root = torch.sqrt(p_half**2 - q)
+    sq_root = torch.nan_to_num(sq_root, nan=0) # rounding errors can cause negative values under square root
 
-    t1 = -p_half - torch.sqrt(p_half**2 - q)
-    t2 = -p_half + torch.sqrt(p_half**2 - q)
+    t1 = -p_half - sq_root
+    t2 = -p_half + sq_root
 
     return torch.stack((t1, t2), dim=1)
 
 
+@torch.no_grad()
 def stratified_sampling(
         ray_bounds: torch.Tensor, 
         n_samples: int, 
@@ -171,15 +203,41 @@ def stratified_sampling(
         n_samples = n_samples * torch.abs(ray_bounds[:, 1] - ray_bounds[:, 0]) / 2
     else:
         n_samples = torch.ones(ray_bounds.shape[0], device=ray_bounds.device) * n_samples
-    
-    for i in range(ray_bounds.shape[0]):
+
+    for i in range(ray_bounds.shape[0]): # TODO: can this loop be avoided?
         interval_size = (ray_bounds[i, 1] - ray_bounds[i, 0]) / n_samples[i]
-        uniform_samples = torch.arange(ray_bounds[i, 0], ray_bounds[i, 1], interval_size, device=ray_bounds.device)
-        perturbation = torch.rand(int(n_samples[i]), device=uniform_samples.device) * interval_size # uniform_samples is [lower, upper) so perturbation should be purely additive
+        if interval_size != 0:
+            uniform_samples = torch.arange(ray_bounds[i, 0], ray_bounds[i, 1] - 1e-6, interval_size, device=ray_bounds.device)
+        else:
+            uniform_samples = torch.tensor([ray_bounds[i, 0]], device=ray_bounds.device)
+        perturbation = torch.rand(len(uniform_samples), device=uniform_samples.device) * interval_size # uniform_samples is [lower, upper) so perturbation should be purely additive
         samples[i,:len(uniform_samples)] = uniform_samples + perturbation
         samples[i, len(uniform_samples):] = torch.nan
     return samples
 
+
+@torch.no_grad()
+def get_sampling_distances(t_samples: torch.Tensor, ray_bounds: torch.Tensor) -> torch.Tensor:
+    """
+    Get the distance between sampled points along the ray. The distance associated with each sample
+    is the distance between that sample and the next sample. The distance for sample sigma_i is
+    t_{i+1} - t_i. The distance for the last sample is the distance between the last sample and the
+    far bound of the image. 
+    
+    This the distance can be calculated from t since the heading vector has magnitue 1. 
+
+    Args:
+        t_samples (torch.Tensor): shape (B, n_samples)
+
+    Returns:
+        torch.Tensor: shape (B, n_samples)
+    """
+    # TODO: does this handle nan samples gracefully?
+    far_bounds = ray_bounds[:, 1]
+    sample_distances = torch.zeros(t_samples.shape[0], t_samples.shape[1], device=t_samples.device)
+    sample_distances[:, :-1] = t_samples[:, 1:] - t_samples[:, :-1]
+    sample_distances[:, -1] = far_bounds - t_samples[:, -1]
+    return sample_distances
     
         
 
@@ -217,16 +275,16 @@ def test_start_pos():
             [ 1.0000e+00,  8.7423e-08, -0.0000e+00]])
     """
 
-def test_get_samples():
-    data_dir = get_data_dir() / "xrays" / "2 AC_CT_TBody"
-    dataset = XRayDataset(data_dir)
-    dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
+# def test_get_samples():
+    # data_dir = get_data_dir() / "xrays" / "2 AC_CT_TBody"
+    # dataset = XRayDataset(data_dir)
+    # dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
 
-    pixel_positions, angles, _ = next(iter(dataloader))
-    sampled_points = get_sampled_points(pixel_positions, angles, torch.tensor([512,536]), 10)
+    # pixel_positions, angles, _ = next(iter(dataloader))
+    # sampled_points = get_sampled_points(pixel_positions, angles, torch.tensor([512,536]), 10)
 
-    print(f"sampled points:\n{sampled_points}")
+    # print(f"sampled points:\n{sampled_points}")
 
 
-if __name__ == "__main__":
-    test_get_samples()
+# if __name__ == "__main__":
+    # test_get_samples()

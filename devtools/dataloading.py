@@ -4,13 +4,23 @@ import torch
 from torch.utils.data import Dataset
 import math
 from tqdm import tqdm
+from devtools.rays import get_rays
+import numpy as np
 
 
 
 class XRayDataset(Dataset):
 
 
-    def __init__(self, xray_dir: Path, *args, **kwargs) -> None:
+    @torch.no_grad()
+    def __init__(
+            self,
+            xray_dir: Path,
+            s: float = 1,
+            k: float = 0,
+            *args,
+            **kwargs
+        ) -> None:
         super().__init__(*args, **kwargs)
 
         images = self._read_images(xray_dir)
@@ -22,27 +32,34 @@ class XRayDataset(Dataset):
         with open(xray_dir / "angles.txt", "r") as f:
             for line in f:
                 angles += [math.radians(float(line.strip()))] * pixels_per_image
-        self.angles = torch.tensor(angles)
+        angles = torch.tensor(angles)
 
-        # setup positions and intensities
-        self.positions = torch.zeros((self.len, 2))
-        self.intensities = torch.zeros(self.len)
+        # setup positions
+        positions = torch.zeros((self.len, 2))
+        x = torch.linspace(0, images[0].size[0] - 1, images[0].size[0])
+        y = torch.linspace(0, images[0].size[1] - 1, images[0].size[1])
+        x, y = torch.meshgrid(x, y)
+        positions = torch.stack((x, y), dim=-1).reshape(-1, 2).repeat(len(images), 1)
+
+        # setup correpsponding intensities
         index = 0
-        for image in tqdm(images, desc="Setting up positions and intensities"):
-            for x in range(image.size[0]):
-                for y in range(image.size[1]):
-                    self.positions[index, 0] = x
-                    self.positions[index, 1] = y
-                    self.intensities[index] = image.getpixel((x, y))
-                    index += 1
+        self.intensities = torch.zeros(self.len)
+        for image in images:
+            intensities = torch.tensor(np.array(image)).reshape(-1)
+            self.intensities[index: index + pixels_per_image] = intensities
+            index += pixels_per_image
+        
+        image_size = torch.tensor(images[0].size).expand(self.len, 2)
+        self.start_positions, self.heading_vectors, self.ray_bounds = get_rays(positions, angles, image_size)
         
         # transform intensities to have values that are more evenly distributed
         self.intensities = self.intensities / (2**16 - 1) # TODO: find bit depth more programatically
-        self.intensities = torch.log(self.intensities) # TODO: are these values reasonable or do they need to be scaled?
+        self.intensities = torch.log(self.intensities + k) / s
+        self.intensities = torch.nan_to_num(self.intensities) # intensity 0 gives -inf after log
 
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        return self.positions[index], self.angles[index], self.intensities[index]
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self.start_positions[index], self.heading_vectors[index], self.ray_bounds[index], self.intensities[index]
     
 
     def __len__(self) -> int:
