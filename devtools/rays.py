@@ -204,7 +204,7 @@ def stratified_sampling(
     else:
         n_samples = torch.ones(ray_bounds.shape[0], device=ray_bounds.device) * n_samples
 
-    for i in range(ray_bounds.shape[0]): # TODO: can this loop be avoided?
+    for i in range(ray_bounds.shape[0]): # TODO: could avoid slow loop by creating range matrix and multiplying by bound size vectors
         interval_size = (ray_bounds[i, 1] - ray_bounds[i, 0]) / n_samples[i]
         if interval_size != 0:
             uniform_samples = torch.arange(ray_bounds[i, 0], ray_bounds[i, 1] - 1e-6, interval_size, device=ray_bounds.device)
@@ -286,5 +286,5 @@ def test_start_pos():
     # print(f"sampled points:\n{sampled_points}")
 
 
-# if __name__ == "__main__":
-    # test_get_samples()
+if __name__ == "__main__":
+    test_get_samples()
