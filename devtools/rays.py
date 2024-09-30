@@ -98,7 +98,7 @@ def get_start_pos(
     """
 
     # get normalized position before accounting for angle
-    normalized_pos = 2 * pixel_pos / img_shape - 1 # TODO: should y-axis be flipped? So -1 is bottom and 1 is top?
+    normalized_pos = 2 * pixel_pos / img_shape - 1
     x = torch.ones((pixel_pos.shape[0], 1), device=pixel_pos.device) # start position is always at x = 1
     normalized_pos = torch.cat((x, normalized_pos), dim=1)
 
@@ -130,7 +130,7 @@ def _create_z_rotation_matrix(angles):
     rotation_matrices[:, 1, 1] = cos_angles
     rotation_matrices[:, 2, 2] = 1
 
-    heading_vector = -torch.stack((cos_angles, sin_angles, torch.zeros(angles.shape[0], device=angles.device)), dim=1) # TODO: decide on a coordinate system. Using the same coordinate system as images in pytorch means the x-axis points away from the viewer and the z-axis points down.
+    heading_vector = -torch.stack((cos_angles, sin_angles, torch.zeros(angles.shape[0], device=angles.device)), dim=1)
     
     return rotation_matrices, heading_vector
 

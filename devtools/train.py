@@ -46,7 +46,7 @@ def train():
     optimizer = Adam(model.parameters(), lr=run["hparams"]["lr"])
 
     total_batches = 0
-    for epoch in range(100):
+    for epoch in range(1000):
         for i, (start_positions, heading_vectors, ray_bounds, intensities) in enumerate(tqdm(dataloader)):
             start_positions = start_positions.to(device)
             heading_vectors = heading_vectors.to(device)
@@ -73,26 +73,28 @@ def train():
             total_batches += 1
             run.track(loss.item(), name="loss", step=total_batches)
         
-            if i % 100 == 0:
-                # generate cross section
-                model.eval()
-                with torch.no_grad():
-                    yv = torch.linspace(-1, 1, 512)
-                    zv = torch.linspace(-1, 1, 536)
-                    yv, zv = torch.meshgrid(yv, zv, indexing="ij")
-                    yv = yv.to(device)
-                    zv = zv.to(device)
-                    coords = torch.stack([torch.zeros_like(yv), yv, zv], dim=-1)
-                    coords = coords.reshape(-1, 3)
-                    coords = coords.to(device)
+        # generate cross section
+        model.eval()
+        with torch.no_grad():
+            yv = torch.linspace(-1, 1, 512)
+            zv = torch.linspace(-1, 1, 536)
+            yv, zv = torch.meshgrid(yv, zv, indexing="ij")
+            yv = yv.to(device)
+            zv = zv.to(device)
+            coords = torch.stack([torch.zeros_like(yv), yv, zv], dim=-1)
+            coords = coords.reshape(-1, 3)
+            coords = coords.to(device)
 
-                    output = model(coords)
-                    output = output.reshape(512, 536)
+            output = model(coords)
+            output = output.reshape(512, 536).T
 
-                    fig = px.imshow(output.cpu().numpy())
-                    run.track(Figure(fig), name="cross_section", step=int(total_batches/100))
+            fig = px.imshow(output.cpu().numpy(), color_continuous_scale="gray")
+            run.track(Figure(fig), name="cross_section", step=epoch)
 
-                model.train()
+        model.train()
+
+        if epoch % 25 == 0:
+            torch.save(model.state_dict(), f"../models/model_{epoch}.pt")
                         
 
 
