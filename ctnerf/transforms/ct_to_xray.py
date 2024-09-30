@@ -59,7 +59,7 @@ class CtToXray(monai.transforms.Transform):
         Returns:
             torch.Tensor: X-ray image with shape (C, H, W)
         """
-        img = self.hounsfield_to_attenuation(img)
+        img = self._hounsfield_to_attenuation(img)
         img = rotate(
             img, 
             angle=(angle, 0, 0),
@@ -76,7 +76,7 @@ class CtToXray(monai.transforms.Transform):
         return img
     
 
-    def hounsfield_to_attenuation(self, img: torch.Tensor) -> torch.Tensor:
+    def _hounsfield_to_attenuation(self, img: torch.Tensor) -> torch.Tensor:
         """
         Reverses the formula for Hounsfield units to turn the CT image into a map of attenuation coefficients
         """

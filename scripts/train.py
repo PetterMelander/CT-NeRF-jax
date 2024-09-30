@@ -1,14 +1,14 @@
 import torch
-from devtools.models import XRayModel
+from ctnerf.models import XRayModel
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torch.optim import Adam
-from dataloading import XRayDataset
+from ctnerf.dataloading import XRayDataset
 from torch.nn import MSELoss
 from aim import Run, Figure
 import plotly.express as px
-from devtools.utils import get_data_dir
-from devtools.rays import get_samples, log_beer_lambert_law
+from ctnerf.utils import get_data_dir
+from ctnerf.rays import get_samples, log_beer_lambert_law
 import math
 import datetime
 from pathlib import Path

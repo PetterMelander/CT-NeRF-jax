@@ -3,8 +3,7 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset
 import math
-from tqdm import tqdm
-from devtools.rays import get_rays
+from ctnerf.rays import get_rays
 import numpy as np
 
 

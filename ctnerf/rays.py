@@ -46,8 +46,8 @@ def get_rays(
         torch.Tensor: shape (B * n_samples, 3)
     """
 
-    start_pos, heading_vector = get_start_pos(pixel_pos, angle, img_shape)
-    ray_bounds = get_ray_bounds(start_pos, heading_vector)
+    start_pos, heading_vector = _get_start_pos(pixel_pos, angle, img_shape)
+    ray_bounds = _get_ray_bounds(start_pos, heading_vector)
     
     return start_pos, heading_vector, ray_bounds
 
@@ -61,8 +61,8 @@ def get_samples(
         proportional_sampling: bool = False
         ) -> torch.Tensor:
 
-    t_samples = stratified_sampling(ray_bounds, n_samples, proportional_sampling)
-    sampling_distances = get_sampling_distances(t_samples, ray_bounds)
+    t_samples = _coarse_sampling(ray_bounds, n_samples, proportional_sampling)
+    sampling_distances = _get_sampling_distances(t_samples, ray_bounds)
 
     # sampled points should have shape (B, n_samples, 3)
     sampled_points = start_pos.unsqueeze(1) + t_samples.unsqueeze(2) * heading_vector.unsqueeze(1)
@@ -78,7 +78,7 @@ def get_samples(
 
 
 @torch.no_grad()
-def get_start_pos(
+def _get_start_pos(
         pixel_pos: torch.Tensor, 
         angle: torch.Tensor, 
         img_shape: torch.Tensor
@@ -136,7 +136,7 @@ def _create_z_rotation_matrix(angles):
 
 
 @torch.no_grad()
-def get_ray_bounds(start_pos: torch.Tensor, heading_vector: torch.Tensor) -> torch.Tensor:
+def _get_ray_bounds(start_pos: torch.Tensor, heading_vector: torch.Tensor) -> torch.Tensor:
     """
     Given a start position (a, b, c) and a direction vector (v_x, v_y, 0), a ray can be parameterized as
     (a + t*v_x, b + t*v_y, c). This function returns the t's that correspond to the ray passing through
@@ -172,7 +172,7 @@ def get_ray_bounds(start_pos: torch.Tensor, heading_vector: torch.Tensor) -> tor
 
 
 @torch.no_grad()
-def stratified_sampling(
+def _coarse_sampling(
         ray_bounds: torch.Tensor, 
         n_samples: int, 
         proportional_sampling: bool = False
@@ -206,7 +206,7 @@ def stratified_sampling(
 
 
 @torch.no_grad()
-def get_sampling_distances(t_samples: torch.Tensor, ray_bounds: torch.Tensor) -> torch.Tensor:
+def _get_sampling_distances(t_samples: torch.Tensor, ray_bounds: torch.Tensor) -> torch.Tensor:
     """
     Get the distance between sampled points along the ray. The distance associated with each sample
     is the distance between that sample and the next sample. The distance for sample sigma_i is
@@ -245,7 +245,7 @@ def test_start_pos():
                              [512, 512],
                              [512, 512]])
 
-    start_pos, direction_vector = get_start_pos(pixel_pos, angle, img_shape)
+    start_pos, direction_vector = _get_start_pos(pixel_pos, angle, img_shape)
     print(f"post rotation:\n{start_pos}\n")
     print(f"direction vector:\n{direction_vector}")
 

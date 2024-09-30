@@ -1,7 +1,7 @@
-from devtools.ct_creation import generate_ct
-from devtools.utils import get_data_dir
+from ctnerf.ct_creation import generate_ct
+from ctnerf.utils import get_data_dir
 from pathlib import Path
-from devtools.models import XRayModel
+from ctnerf.models import XRayModel
 import torch
 
 

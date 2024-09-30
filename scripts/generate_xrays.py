@@ -1,5 +1,5 @@
-from transforms.ct_to_xray import CtToXray, NrrdReader
-from devtools.utils import get_data_dir
+from ctnerf.transforms.ct_to_xray import CtToXray, NrrdReader
+from ctnerf.utils import get_data_dir
 import math
 from PIL import Image
 
