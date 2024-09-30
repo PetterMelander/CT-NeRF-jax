@@ -8,6 +8,8 @@
 *.nrrd
 *.pt
 *.png
+*.nii.gz
+models
 angles.txt
 meta.json
 

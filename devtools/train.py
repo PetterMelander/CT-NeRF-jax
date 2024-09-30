@@ -10,13 +10,18 @@ import plotly.express as px
 from devtools.utils import get_data_dir
 from devtools.rays import get_samples, log_beer_lambert_law
 import math
+import datetime
+from pathlib import Path
 
 
 
-def train():
+def train(): # TODO: use validation set?
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
     run = Run()
     run["hparams"] = {
+        "name": "dev-testing",
         "n_layers": 8,
         "layer_dim": 256,
         "L": 10,
@@ -28,6 +33,8 @@ def train():
         "s": math.log(2),
         "k": 1
     }
+    model_save_path = Path(__file__).parents[1] / f"models/{run['hparams']['name']}/{timestamp}"
+    model_save_path.mkdir(parents=True, exist_ok=True)
     device = torch.device(run["hparams"]["device"])
 
     datapath = get_data_dir() / "xrays" / "2 AC_CT_TBody"
@@ -42,12 +49,11 @@ def train():
     model.to(device)
 
     mse_loss = MSELoss(reduction="none")
-
     optimizer = Adam(model.parameters(), lr=run["hparams"]["lr"])
 
     total_batches = 0
     for epoch in range(1000):
-        for i, (start_positions, heading_vectors, ray_bounds, intensities) in enumerate(tqdm(dataloader)):
+        for start_positions, heading_vectors, ray_bounds, intensities in tqdm(dataloader):
             start_positions = start_positions.to(device)
             heading_vectors = heading_vectors.to(device)
             ray_bounds = ray_bounds.to(device)
@@ -79,8 +85,6 @@ def train():
             yv = torch.linspace(-1, 1, 512)
             zv = torch.linspace(-1, 1, 536)
             yv, zv = torch.meshgrid(yv, zv, indexing="ij")
-            yv = yv.to(device)
-            zv = zv.to(device)
             coords = torch.stack([torch.zeros_like(yv), yv, zv], dim=-1)
             coords = coords.reshape(-1, 3)
             coords = coords.to(device)
@@ -94,8 +98,8 @@ def train():
         model.train()
 
         if epoch % 25 == 0:
-            torch.save(model.state_dict(), f"../models/model_{epoch}.pt")
-                        
+            torch.save(model.state_dict(), model_save_path / f"{epoch}.pt")
+
 
 
 
