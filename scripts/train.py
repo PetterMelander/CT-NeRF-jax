@@ -15,6 +15,10 @@ from pathlib import Path
 
 
 
+torch.set_float32_matmul_precision('high')
+torch.backends.cudnn.benchmark = True
+torch.backends.cuda.allow_tf32 = True
+
 def train(): # TODO: use validation set?
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -47,6 +51,7 @@ def train(): # TODO: use validation set?
         L=run["hparams"]["L"],
     )
     model.to(device)
+    model = torch.compile(model, mode="reduce-overhead")
 
     mse_loss = MSELoss(reduction="none")
     optimizer = Adam(model.parameters(), lr=run["hparams"]["lr"])
@@ -58,24 +63,20 @@ def train(): # TODO: use validation set?
             heading_vectors = heading_vectors.to(device)
             ray_bounds = ray_bounds.to(device)
             intensities = intensities.to(device)
-
-            sampled_points, sampling_distances = get_samples(
-                start_positions, 
-                heading_vectors, 
-                ray_bounds, 
-                run["hparams"]["num_samples"], 
-                run["hparams"]["proportional_sampling"]
+            loss = _train_step(
+                start_positions,
+                heading_vectors,
+                ray_bounds,
+                intensities,
+                model,
+                optimizer,
+                mse_loss,
+                run["hparams"]["num_samples"],
+                run["hparams"]["batch_size"],
+                run["hparams"]["proportional_sampling"],
+                run["hparams"]["s"],
+                run["hparams"]["k"]
             )
-
-            optimizer.zero_grad()
-            output = model(sampled_points)
-            output = output.reshape(run["hparams"]["batch_size"], run["hparams"]["num_samples"])
-            output = log_beer_lambert_law(output, sampling_distances, s=run["hparams"]["s"], k=run["hparams"]["k"])
-            loss = mse_loss(output, intensities)
-            loss = torch.sum(loss)
-
-            loss.backward()
-            optimizer.step()
             total_batches += 1
             run.track(loss.item(), name="loss", step=total_batches)
         
@@ -101,7 +102,41 @@ def train(): # TODO: use validation set?
             torch.save(model.state_dict(), model_save_path / f"{epoch}.pt")
 
 
+@torch.compile(mode="reduce-overhead")
+def _train_step(
+        start_positions: torch.Tensor,
+        heading_vectors: torch.Tensor,
+        ray_bounds: torch.Tensor,
+        intensities: torch.Tensor,
+        model: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+        loss_fn: torch.nn.Module,
+        num_samples: int,
+        batch_size: int,
+        proportional_sampling: bool,
+        s: float,
+        k: float
+        ) -> None:
 
+    sampled_points, sampling_distances = get_samples(
+        start_positions, 
+        heading_vectors, 
+        ray_bounds, 
+        num_samples, 
+        proportional_sampling
+    )
+
+    optimizer.zero_grad()
+    output = model(sampled_points)
+    output = output.reshape(batch_size, num_samples)
+    output = log_beer_lambert_law(output, sampling_distances, s=s, k=k)
+    loss = loss_fn(output, intensities)
+    loss = torch.sum(loss)
+
+    loss.backward()
+    optimizer.step()
+
+    return loss
 
 
 if __name__ == "__main__":
