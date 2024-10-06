@@ -1,5 +1,6 @@
 import torch
 from monai.data import NibabelWriter
+from tqdm import tqdm
 
 
 
@@ -24,13 +25,13 @@ def generate_ct(
     coords = coords.to(device)
     
     # For memory reasons, inference needs to be done in batches
-    output = torch.tensor([], device=device)
+    output = torch.tensor([])
     coords = coords.split(4096 * 128, dim=0)
-    for chunk in coords:
+    for chunk in tqdm(coords, desc="Generating", total=len(coords)):
         chunk = chunk.to(device)
         output_chunk = model(chunk)
         output_chunk = output_chunk.view(-1)
-        output = torch.cat((output, output_chunk))
+        output = torch.cat((output, output_chunk.cpu()))
 
     output = output.reshape(img_size[0], img_size[1], img_size[2])
 

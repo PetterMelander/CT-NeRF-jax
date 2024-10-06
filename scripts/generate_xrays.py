@@ -14,7 +14,7 @@ xray = CtToXray()
 img = reader(path=ct_path, device="cuda:0").detach()
 
 angles = ""
-for angle in range(0, 180, 5):
+for angle in range(0, 180, 3):
     xray_img = xray(img, pixel_spacing=img.meta["spacing"][1,1]/10, angle=math.radians(angle))
     xray_img = Image.fromarray((xray_img * (2**16 - 1)).astype('uint16').squeeze(0))
     xray_img.save(output_dir / f"{angle}.png")

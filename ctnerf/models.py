@@ -19,7 +19,6 @@ class XRayModel(torch.nn.Module):
     
     def forward(self, coords: torch.Tensor) -> torch.Tensor: 
         # TODO: dropout? noise? regularization?
-        # TODO: handle values outside of cylinder
 
         pos_enc = self._positional_encoding(coords, self.L)
         x = torch.clone(pos_enc)
@@ -27,7 +26,7 @@ class XRayModel(torch.nn.Module):
             if i == len(self.layers) / 2 + 1:
                 x = torch.cat((pos_enc, x), dim=1)
             x = torch.nn.functional.relu(layer(x))
-        return self.out(x)
+        return torch.nn.functional.gelu(self.out(x))
     
 
     @torch.no_grad()

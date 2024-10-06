@@ -39,9 +39,6 @@ def get_rays(
         pixel_pos (torch.Tensor): shape (B, 2)
         angle (torch.Tensor): shape (B,)
         img_shape (torch.Tensor): shape (B, 2)
-        n_samples (int): number of samples
-        proportional_sampling (bool): whether to sample proportional to the length of the ray
-
     Returns:
         torch.Tensor: shape (B * n_samples, 3)
     """
@@ -58,21 +55,15 @@ def get_samples(
         heading_vector: torch.Tensor, 
         ray_bounds: torch.Tensor,
         n_samples: int,
-        proportional_sampling: bool = False
+        slice_size_cm: float,
         ) -> torch.Tensor:
 
-    t_samples = _coarse_sampling(ray_bounds, n_samples, proportional_sampling)
-    sampling_distances = _get_sampling_distances(t_samples, ray_bounds)
+    t_samples = _coarse_sampling(ray_bounds, n_samples)
+    sampling_distances = _get_sampling_distances(t_samples, ray_bounds, slice_size_cm)
 
     # sampled points should have shape (B, n_samples, 3)
     sampled_points = start_pos.unsqueeze(1) + t_samples.unsqueeze(2) * heading_vector.unsqueeze(1)
     sampled_points = sampled_points.reshape(-1, 3)
-
-    # Handle nan values (where fewer than N samples were taken) by setting the points to 
-    # the dummy location (1000, 1000, 1000) and the distance to 0. Distance 0 guarantees
-    # the value of the dummy point won't affect the output.
-    sampled_points = torch.nan_to_num(sampled_points, nan=1000)
-    sampling_distances = torch.nan_to_num(sampling_distances, nan=0)
 
     return sampled_points, sampling_distances
 
@@ -101,6 +92,9 @@ def _get_start_pos(
     normalized_pos = 2 * pixel_pos / img_shape - 1
     x = torch.ones((pixel_pos.shape[0], 1), device=pixel_pos.device) # start position is always at x = 1
     normalized_pos = torch.cat((x, normalized_pos), dim=1)
+
+    # invert z axis
+    normalized_pos[:,2] *= -1
 
     # rotate to account for angle
     rotation_matrix, heading_vector = _create_z_rotation_matrix(angle)
@@ -151,31 +145,31 @@ def _get_ray_bounds(start_pos: torch.Tensor, heading_vector: torch.Tensor) -> to
         torch.Tensor: A tensor of shape (B, 2), containing the two t's
     """
 
+    return torch.stack((torch.zeros_like(start_pos[:,0]), 2*torch.ones_like(start_pos[:,0])), dim=1)
 
-    a = start_pos[:,0]
-    b = start_pos[:,1]
+    # a = start_pos[:,0]
+    # b = start_pos[:,1]
 
-    v_x = heading_vector[:,0]
-    v_y = heading_vector[:,1]
+    # v_x = heading_vector[:,0]
+    # v_y = heading_vector[:,1]
 
-    # p_half = (a*v_x + b*v_y) / (v_x**2 + v_y**2)
-    # q = (a**2 + b**2 - 1) / (v_x**2 + v_y**2)
-    p_half = (a*v_x + b*v_y)
-    q = (a**2 + b**2 - 1)
-    sq_root = torch.sqrt(p_half**2 - q)
-    sq_root = torch.nan_to_num(sq_root, nan=0) # rounding errors can cause negative values under square root
+    # # p_half = (a*v_x + b*v_y) / (v_x**2 + v_y**2)
+    # # q = (a**2 + b**2 - 1) / (v_x**2 + v_y**2)
+    # p_half = (a*v_x + b*v_y)
+    # q = (a**2 + b**2 - 1)
+    # sq_root = torch.sqrt(p_half**2 - q)
+    # sq_root = torch.nan_to_num(sq_root, nan=0) # rounding errors can cause negative values under square root
 
-    t1 = -p_half - sq_root
-    t2 = -p_half + sq_root
+    # t1 = -p_half - sq_root
+    # t2 = -p_half + sq_root
 
-    return torch.stack((t1, t2), dim=1)
+    # return torch.stack((t1, t2), dim=1)
 
 
 @torch.no_grad()
 def _coarse_sampling(
         ray_bounds: torch.Tensor, 
         n_samples: int, 
-        proportional_sampling: bool = False
         ) -> torch.Tensor:
     """
     Samples n_samples points along the ray between the two t's in ray_bounds using the stratified
@@ -189,8 +183,6 @@ def _coarse_sampling(
     Args:
         ray_bounds (torch.Tensor): shape (B, 2). Contains the two t bounds
         n_samples (int): number of samples
-        proportional_sampling (bool): whether to sample proportional to the length of the ray
-
     Returns:
         torch.Tensor: shape (B, n_samples). Contains the sampled t's, and nan if there is no sample.
     """
@@ -206,7 +198,11 @@ def _coarse_sampling(
 
 
 @torch.no_grad()
-def _get_sampling_distances(t_samples: torch.Tensor, ray_bounds: torch.Tensor) -> torch.Tensor:
+def _get_sampling_distances(
+    t_samples: torch.Tensor, 
+    ray_bounds: torch.Tensor,
+    slice_size_cm: float = 0.97 * 512
+    ) -> torch.Tensor:
     """
     Get the distance between sampled points along the ray. The distance associated with each sample
     is the distance between that sample and the next sample. The distance for sample sigma_i is
@@ -225,54 +221,7 @@ def _get_sampling_distances(t_samples: torch.Tensor, ray_bounds: torch.Tensor) -
     sample_distances = torch.zeros(t_samples.shape[0], t_samples.shape[1], device=t_samples.device)
     sample_distances[:, :-1] = t_samples[:, 1:] - t_samples[:, :-1]
     sample_distances[:, -1] = far_bounds - t_samples[:, -1]
+
+    # scale to cm
+    sample_distances = sample_distances * slice_size_cm / 2
     return sample_distances
-    
-        
-
-
-
-def test_start_pos():
-    pixel_pos = torch.tensor([[0,0],
-                              [256, 256],
-                              [512, 512]])
-    # pixel_pos = torch.tensor([[256,256],
-    #                           [512,256],
-    #                           [256,512],])
-    angle = torch.tensor([0,
-                          3.1415926535/2,
-                          3.1415926535])
-    img_shape = torch.tensor([[512, 512],
-                             [512, 512],
-                             [512, 512]])
-
-    start_pos, direction_vector = _get_start_pos(pixel_pos, angle, img_shape)
-    print(f"post rotation:\n{start_pos}\n")
-    print(f"direction vector:\n{direction_vector}")
-
-    """
-    Should print: 
-
-    post rotation:
-    tensor([[ 1.0000e+00, -1.0000e+00, -1.0000e+00],
-            [-4.3711e-08,  1.0000e+00,  0.0000e+00],
-            [-1.0000e+00, -1.0000e+00,  1.0000e+00]])
-    
-    direction vector:
-    tensor([[-1.0000e+00, -0.0000e+00, -0.0000e+00],
-            [ 4.3711e-08, -1.0000e+00, -0.0000e+00],
-            [ 1.0000e+00,  8.7423e-08, -0.0000e+00]])
-    """
-
-# def test_get_samples():
-    # data_dir = get_data_dir() / "xrays" / "2 AC_CT_TBody"
-    # dataset = XRayDataset(data_dir)
-    # dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
-
-    # pixel_positions, angles, _ = next(iter(dataloader))
-    # sampled_points = get_sampled_points(pixel_positions, angles, torch.tensor([512,536]), 10)
-
-    # print(f"sampled points:\n{sampled_points}")
-
-
-# if __name__ == "__main__":
-    # test_get_samples()
