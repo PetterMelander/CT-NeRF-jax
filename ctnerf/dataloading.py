@@ -53,10 +53,10 @@ class XRayDataset(Dataset):
         self.intensities = torch.nan_to_num(self.intensities) # intensity 0 gives -inf after log
 
         image_size = torch.tensor(images[0].size).expand(self.len, 2)
-        self.start_positions, self.heading_vectors, self.ray_bounds = get_rays(positions, angles, image_size)
+        self.start_positions, self.heading_vectors = get_rays(positions, angles, image_size)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        return self.start_positions[index], self.heading_vectors[index], self.ray_bounds[index], self.intensities[index]
+        return self.start_positions[index], self.heading_vectors[index], self.intensities[index]
     
 
     def __len__(self) -> int:

@@ -44,22 +44,20 @@ def get_rays(
     """
 
     start_pos, heading_vector = _get_start_pos(pixel_pos, angle, img_shape)
-    ray_bounds = _get_ray_bounds(start_pos, heading_vector)
     
-    return start_pos, heading_vector, ray_bounds
+    return start_pos, heading_vector
 
 
 @torch.no_grad()
 def get_samples(
         start_pos: torch.Tensor, 
         heading_vector: torch.Tensor, 
-        ray_bounds: torch.Tensor,
         n_samples: int,
         slice_size_cm: float,
         ) -> torch.Tensor:
 
-    t_samples = _coarse_sampling(ray_bounds, n_samples)
-    sampling_distances = _get_sampling_distances(t_samples, ray_bounds, slice_size_cm)
+    t_samples = _coarse_sampling(start_pos.shape[0], n_samples)
+    sampling_distances = _get_sampling_distances(t_samples, slice_size_cm)
 
     # sampled points should have shape (B, n_samples, 3)
     sampled_points = start_pos.unsqueeze(1) + t_samples.unsqueeze(2) * heading_vector.unsqueeze(1)
@@ -130,46 +128,9 @@ def _create_z_rotation_matrix(angles):
 
 
 @torch.no_grad()
-def _get_ray_bounds(start_pos: torch.Tensor, heading_vector: torch.Tensor) -> torch.Tensor:
-    """
-    Given a start position (a, b, c) and a direction vector (v_x, v_y, 0), a ray can be parameterized as
-    (a + t*v_x, b + t*v_y, c). This function returns the t's that correspond to the ray passing through
-    the cylinder x^2 + y^2 = 1, which defines the bounds of the image. Which t corresponds to which
-    bound is irrelevant since they will only be used sample points between the two t's. 
-
-    Args:
-        start_pos (torch.Tensor): shape (B, 3)
-        heading_vector (torch.Tensor): shape (B, 3)
-
-    Returns:
-        torch.Tensor: A tensor of shape (B, 2), containing the two t's
-    """
-
-    return torch.stack((torch.zeros_like(start_pos[:,0]), 2*torch.ones_like(start_pos[:,0])), dim=1)
-
-    # a = start_pos[:,0]
-    # b = start_pos[:,1]
-
-    # v_x = heading_vector[:,0]
-    # v_y = heading_vector[:,1]
-
-    # # p_half = (a*v_x + b*v_y) / (v_x**2 + v_y**2)
-    # # q = (a**2 + b**2 - 1) / (v_x**2 + v_y**2)
-    # p_half = (a*v_x + b*v_y)
-    # q = (a**2 + b**2 - 1)
-    # sq_root = torch.sqrt(p_half**2 - q)
-    # sq_root = torch.nan_to_num(sq_root, nan=0) # rounding errors can cause negative values under square root
-
-    # t1 = -p_half - sq_root
-    # t2 = -p_half + sq_root
-
-    # return torch.stack((t1, t2), dim=1)
-
-
-@torch.no_grad()
 def _coarse_sampling(
-        ray_bounds: torch.Tensor, 
-        n_samples: int, 
+        batch_size: int,
+        n_samples: int,
         ) -> torch.Tensor:
     """
     Samples n_samples points along the ray between the two t's in ray_bounds using the stratified
@@ -187,20 +148,18 @@ def _coarse_sampling(
         torch.Tensor: shape (B, n_samples). Contains the sampled t's, and nan if there is no sample.
     """
 
-    interval_size = (ray_bounds[:, 1] - ray_bounds[:, 0]).unsqueeze(1) / n_samples
+    interval_size = 2 / n_samples
 
-    uniform_samples = torch.arange(0, n_samples, device=ray_bounds.device).repeat(ray_bounds.shape[0], 1)
-    uniform_samples = interval_size * uniform_samples + ray_bounds[:, 0].unsqueeze(1) # This rescales each row to [t_min, t_max)
+    uniform_samples = torch.arange(0, n_samples).repeat(batch_size, 1)
+    uniform_samples = uniform_samples * interval_size # This rescales each row to [0, 2)
 
-    perturbation = torch.rand(ray_bounds.shape[0], n_samples, device=ray_bounds.device) * interval_size
+    perturbation = torch.rand(batch_size, n_samples) * interval_size
 
     return uniform_samples + perturbation
-
 
 @torch.no_grad()
 def _get_sampling_distances(
     t_samples: torch.Tensor, 
-    ray_bounds: torch.Tensor,
     slice_size_cm: float = 0.97 * 512
     ) -> torch.Tensor:
     """
@@ -217,10 +176,9 @@ def _get_sampling_distances(
     Returns:
         torch.Tensor: shape (B, n_samples)
     """
-    far_bounds = ray_bounds[:, 1]
     sample_distances = torch.zeros(t_samples.shape[0], t_samples.shape[1], device=t_samples.device)
     sample_distances[:, :-1] = t_samples[:, 1:] - t_samples[:, :-1]
-    sample_distances[:, -1] = far_bounds - t_samples[:, -1]
+    sample_distances[:, -1] = 2 - t_samples[:, -1]
 
     # scale to cm
     sample_distances = sample_distances * slice_size_cm / 2

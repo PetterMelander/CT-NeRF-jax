@@ -35,7 +35,7 @@ def train():
         "device": "cuda:0",
         "s": 1,
         "k": 0.1,
-        "slice_size_cm": 1.5234375 * 512 # TODO: extract automatically?
+        "slice_size_cm": 0.15234375 * 512 # TODO: extract automatically?
     }
     model_save_path = Path(__file__).parents[1] / f"models/{run['hparams']['name']}/{timestamp}"
     model_save_path.mkdir(parents=True, exist_ok=True)
@@ -57,7 +57,7 @@ def train():
 
     total_batches = 0
     for epoch in range(1000):
-        for start_positions, heading_vectors, ray_bounds, intensities in tqdm(dataloader):
+        for start_positions, heading_vectors, intensities in tqdm(dataloader):
             # start_positions = start_positions.to(device)
             # heading_vectors = heading_vectors.to(device)
             # ray_bounds = ray_bounds.to(device)
@@ -65,7 +65,6 @@ def train():
             loss = _train_step(
                 start_positions,
                 heading_vectors,
-                ray_bounds,
                 intensities,
                 run["hparams"]["slice_size_cm"],
                 model,
@@ -91,7 +90,6 @@ def train():
 def _train_step(
         start_positions: torch.Tensor,
         heading_vectors: torch.Tensor,
-        ray_bounds: torch.Tensor,
         intensities: torch.Tensor,
         slice_size_cm: float,
         model: torch.nn.Module,
@@ -107,7 +105,6 @@ def _train_step(
     sampled_points, sampling_distances = get_samples(
         start_positions, 
         heading_vectors, 
-        ray_bounds, 
         num_samples,
         slice_size_cm
     )
