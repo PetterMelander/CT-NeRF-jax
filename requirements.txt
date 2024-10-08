@@ -1,4 +1,4 @@
-pytorch
+torch
 monai
 metaimageio # for reading metaio files
 nibabel # for reading nifti files
