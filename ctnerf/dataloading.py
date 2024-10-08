@@ -17,6 +17,7 @@ class XRayDataset(Dataset):
             xray_dir: Path,
             s: float = 1,
             k: float = 0,
+            dtype: torch.dtype = torch.float32,
             *args,
             **kwargs
         ) -> None:
@@ -55,9 +56,9 @@ class XRayDataset(Dataset):
         image_size = torch.tensor(images[0].size).expand(self.len, 2)
         self.start_positions, self.heading_vectors = get_rays(positions, angles, image_size)
 
-        self.start_positions = self.start_positions.to(dtype=torch.bfloat16)
-        self.heading_vectors = self.heading_vectors.to(dtype=torch.bfloat16)
-        self.intensities = self.intensities.to(dtype=torch.bfloat16)
+        self.start_positions = self.start_positions.to(dtype=dtype)
+        self.heading_vectors = self.heading_vectors.to(dtype=dtype)
+        self.intensities = self.intensities.to(dtype=dtype)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.start_positions[index], self.heading_vectors[index], self.intensities[index]
