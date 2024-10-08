@@ -9,11 +9,11 @@ import torch
 def main():
 
     device = torch.device("cuda:0")
-    output_name = "test_constant_range.nii.gz"
+    output_name = "test_coarse.nii.gz"
     img_size = [512, 512, 536]
-    model_path = Path(__file__).parents[1] / "models" / "dev-testing" / "20241005-213935" / "5.pt"
+    model_path = Path(__file__).parents[1] / "models" / "dev-testing" / "20241006-215139" / "27_coarse.pt"
 
-    model = XRayModel(10, 256, 10)
+    model = XRayModel(8, 256, 10)
     model.load_state_dict(torch.load(model_path, weights_only=True))
     datapath = get_data_dir()
     ct_path = datapath / "ct_images" / "nrrd" / output_name

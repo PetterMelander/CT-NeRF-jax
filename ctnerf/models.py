@@ -18,7 +18,6 @@ class XRayModel(torch.nn.Module):
 
     
     def forward(self, coords: torch.Tensor) -> torch.Tensor: 
-        # TODO: dropout? noise? regularization?
 
         pos_enc = self._positional_encoding(coords, self.L)
         x = torch.clone(pos_enc)
@@ -26,7 +25,11 @@ class XRayModel(torch.nn.Module):
             if i == len(self.layers) / 2 + 1:
                 x = torch.cat((pos_enc, x), dim=1)
             x = torch.nn.functional.relu(layer(x))
-        return torch.nn.functional.gelu(self.out(x))
+        
+        x = self.out(x)
+        if self.training:
+            x += torch.randn_like(x, device=x.device) * 0.01
+        return torch.nn.functional.gelu(x)
     
 
     @torch.no_grad()

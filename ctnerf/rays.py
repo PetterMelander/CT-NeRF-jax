@@ -6,7 +6,8 @@ def log_beer_lambert_law(
         attenuation_coeffs: torch.Tensor, 
         distances: torch.Tensor,
         s: float = 1,
-        k: float = 0
+        k: float = 0,
+        slice_size_cm: float = 0.97 * 512
     ) -> torch.Tensor:
     """ 
     Uses Beer-Lambert law to calculate transmittance given the
@@ -21,6 +22,10 @@ def log_beer_lambert_law(
     Returns:
         torch.Tensor: shape (B,)
     """
+
+    # scale to cm
+    distances = distances * slice_size_cm / 2
+
     exp = torch.exp(-torch.sum(attenuation_coeffs * distances, dim=1))
     return torch.log(exp + k) / s
 
@@ -49,15 +54,36 @@ def get_rays(
 
 
 @torch.no_grad()
-def get_samples(
+def get_coarse_samples(
         start_pos: torch.Tensor, 
         heading_vector: torch.Tensor, 
         n_samples: int,
-        slice_size_cm: float,
-        ) -> torch.Tensor:
+        ) -> tuple[torch.Tensor, torch.Tensor]:
 
     t_samples = _coarse_sampling(start_pos.shape[0], n_samples)
-    sampling_distances = _get_sampling_distances(t_samples, slice_size_cm)
+    sampling_distances = _get_sampling_distances(t_samples)
+
+    # sampled points should have shape (B, n_samples, 3)
+    sampled_points = start_pos.unsqueeze(1) + t_samples.unsqueeze(2) * heading_vector.unsqueeze(1)
+    sampled_points = sampled_points.reshape(-1, 3)
+
+    return t_samples,sampled_points, sampling_distances
+
+
+@torch.no_grad()
+def get_fine_samples(
+        start_pos: torch.Tensor, 
+        heading_vector: torch.Tensor,
+        coarse_sample_ts: torch.Tensor,
+        coarse_sample_values: torch.Tensor,
+        coarse_sampling_distances: torch.Tensor,
+        n_samples: int,
+        ) -> tuple[torch.Tensor, torch.Tensor]:
+
+    t_samples = _fine_sampling(n_samples, coarse_sample_values, coarse_sampling_distances)
+    t_samples = torch.cat([coarse_sample_ts, t_samples], dim=1)
+    t_samples = torch.sort(t_samples, dim=1)[0]
+    sampling_distances = _get_sampling_distances(t_samples)
 
     # sampled points should have shape (B, n_samples, 3)
     sampled_points = start_pos.unsqueeze(1) + t_samples.unsqueeze(2) * heading_vector.unsqueeze(1)
@@ -157,10 +183,41 @@ def _coarse_sampling(
 
     return uniform_samples + perturbation
 
+
+@torch.no_grad()
+def _fine_sampling(
+    num_samples: int,
+    coarse_sample_values: torch.Tensor,
+    coarse_sampling_distances: torch.Tensor,
+    ) -> torch.Tensor:
+
+    coarse_sample_values = coarse_sample_values.detach()
+    coarse_sampling_distances = coarse_sampling_distances.detach()
+
+    pdf = coarse_sample_values * coarse_sampling_distances
+    pdf = pdf / torch.sum(pdf, dim=1, keepdim=True)
+    cdf = torch.cumsum(pdf, dim=1)
+    cdf[..., -1] = 1 + 1e-5 # to avoid rounding errors causing index out of bounds if x is close to 1
+
+    # inverse transform sampling
+    x = torch.rand(coarse_sample_values.shape[0], num_samples, device=coarse_sample_values.device)
+    inds = torch.searchsorted(cdf, x, right=False)
+
+    cum_sampling_distances = torch.cumsum(coarse_sampling_distances, dim=1)
+    cum_sampling_distances = torch.cat([torch.zeros((cum_sampling_distances.shape[0], 1), device=cum_sampling_distances.device), cum_sampling_distances], dim=1)
+    lower = torch.gather(cum_sampling_distances, 1, inds)
+    upper = torch.gather(cum_sampling_distances, 1, inds + 1)
+
+    # uniformly sample between lower and upper
+    t = torch.rand(coarse_sample_values.shape[0], num_samples, device=coarse_sample_values.device)
+    t = t * (upper - lower) + lower
+
+    return t
+
+
 @torch.no_grad()
 def _get_sampling_distances(
     t_samples: torch.Tensor, 
-    slice_size_cm: float = 0.97 * 512
     ) -> torch.Tensor:
     """
     Get the distance between sampled points along the ray. The distance associated with each sample
@@ -179,7 +236,14 @@ def _get_sampling_distances(
     sample_distances = torch.zeros(t_samples.shape[0], t_samples.shape[1], device=t_samples.device)
     sample_distances[:, :-1] = t_samples[:, 1:] - t_samples[:, :-1]
     sample_distances[:, -1] = 2 - t_samples[:, -1]
-
-    # scale to cm
-    sample_distances = sample_distances * slice_size_cm / 2
     return sample_distances
+
+
+
+def test():
+    coarse_samples = torch.tensor([[0.1, 0.6, 0.5, 0.1], [0.1, 0.8, 0.8, 0.2]])
+    coarse_sampling_distances = torch.tensor([[0.1, 0.9, 0.9, 0.1], [0.2, 0.8, 0.8, 0.2]])
+    _fine_sampling(coarse_samples, coarse_sampling_distances)
+
+if __name__ == "__main__":
+    test()
