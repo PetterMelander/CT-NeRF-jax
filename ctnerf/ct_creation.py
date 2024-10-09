@@ -15,7 +15,7 @@ def generate_ct(
     ct_path: Path,
     img_size: tuple[int, int, int],
     chunk_size: int,
-    device: torch.device = torch.device("cpu")
+    device: torch.device
     ) -> None:
 
     model = XRayModel(n_layers, layer_size, pos_embed_dim)
@@ -31,7 +31,7 @@ def generate_ct(
 
     coords = coords.to(device)
     
-    # To avoid oom, inference is done in batches
+    # To avoid oom, inference is done in batches and result stored on cpu
     output = torch.tensor([], device="cpu")
     coords = coords.split(chunk_size, dim=0)
     for chunk in tqdm(coords, desc="Generating", total=len(coords)):
@@ -42,7 +42,7 @@ def generate_ct(
 
     output = output.reshape(img_size[0], img_size[1], img_size[2])
 
-    writer = NibabelWriter()
+    writer = NibabelWriter() # TODO: use nibabel itself instead of monai?
     writer.set_data_array(output, channel_dim=None)
     writer.set_metadata({"affine": torch.eye(4), "original_affine": torch.eye(4)}) # TODO: handle voxel sizes
     writer.write(ct_path, verbose=False)

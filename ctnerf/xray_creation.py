@@ -30,7 +30,7 @@ def generate_xrays(
         f.write(angles)
 
 
-def _read_nrrd(path: Path, device: str = "cpu") -> torch.Tensor:
+def _read_nrrd(path: Path, device: str) -> torch.Tensor:
     """
     Reads a .nrrd file and returns a torch.Tensor with shape (C, H, W, D).
     Makes some assumptions about the orientation of the image.
@@ -54,8 +54,8 @@ def _read_nrrd(path: Path, device: str = "cpu") -> torch.Tensor:
 
 def _ct_to_xray(
     img: torch.Tensor,
-    angle: float = 0,
-    pixel_spacing: float = 0.97
+    angle: float,
+    pixel_spacing: float,
     ) -> torch.Tensor:
     """
     Turns a CT image into an X-ray image by using a discretized version of Beer-Lambert's law
@@ -86,7 +86,7 @@ def _ct_to_xray(
     return img
     
 
-def _hounsfield_to_attenuation(self, img: torch.Tensor) -> torch.Tensor:
+def _hounsfield_to_attenuation(img: torch.Tensor) -> torch.Tensor:
     """
     Reverses the formula for Hounsfield units to turn the CT image into a map of attenuation coefficients
     """
