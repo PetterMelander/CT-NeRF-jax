@@ -54,32 +54,3 @@ class XRayModel(torch.nn.Module):
         gamma[:, :L] = torch.sin(angles)
         gamma[:, L:] = torch.cos(angles)
         return gamma
-
-
-
-
-
-def test():
-
-    from torch.nn import MSELoss
-    mse_loss = MSELoss(reduction="none")
-
-    exp = torch.pow(2, torch.arange(10))
-    print(exp.expand(3, 10))
-    print(exp.expand(3, 10) * torch.tensor([1, 2, 3]).unsqueeze(1))
-
-    model = XRayModel(n_layers=8, layer_dim=256, L=10)
-    test_input = torch.tensor([[1, 2, 3],
-                                [4, 5, 6],
-                                [torch.nan, torch.nan, torch.nan]])
-
-    output = model(test_input)
-    n_non_nans = torch.count_nonzero(~torch.isnan(test_input))
-    output = torch.nan_to_num(output)
-    loss = mse_loss(output, torch.zeros(3,1))
-    loss = torch.sum(loss) / n_non_nans
-    print(output)
-    print(loss)
-
-if __name__ == "__main__":
-    test()

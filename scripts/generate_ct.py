@@ -1,7 +1,5 @@
 from ctnerf.ct_creation import generate_ct
-from ctnerf.utils import get_data_dir
-from pathlib import Path
-from ctnerf.models import XRayModel
+from ctnerf.utils import get_data_dir, get_model_dir
 import torch
 
 
@@ -11,13 +9,23 @@ def main():
     device = torch.device("cuda:0")
     output_name = "test_coarse.nii.gz"
     img_size = [512, 512, 536]
-    model_path = Path(__file__).parents[1] / "models" / "dev-testing" / "20241006-215139" / "27_coarse.pt"
+    model_path = get_model_dir() / "dev-testing" / "20241006-215139" / "27_coarse.pt"
+    ct_path = get_data_dir() / "ct_images" / "nrrd" / output_name
+    n_layers = 8
+    layer_size = 256
+    pos_embed_dim = 10
+    chunk_size = 4096 * 128
 
-    model = XRayModel(8, 256, 10)
-    model.load_state_dict(torch.load(model_path, weights_only=True))
-    datapath = get_data_dir()
-    ct_path = datapath / "ct_images" / "nrrd" / output_name
-    generate_ct(model, img_size, ct_path, device)
+    generate_ct(
+        model_path,
+        n_layers,
+        layer_size,
+        pos_embed_dim,
+        ct_path,
+        img_size,
+        chunk_size,
+        device
+    )
 
 
 if __name__ == "__main__":

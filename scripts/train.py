@@ -86,7 +86,10 @@ def train():
             # heading_vectors = heading_vectors.to(run["hparams"]["device"], dtype=dtype)
             intensities = intensities.to(run["hparams"]["device"], dtype=dtype)
 
-            coarse_sample_ts, coarse_attenuation_coeff_pred, coarse_sampling_distances, coarse_loss = _coarse_step(
+            (coarse_sample_ts,
+             coarse_attenuation_coeff_pred,
+             coarse_sampling_distances,
+             coarse_loss) = _coarse_step(
                 start_positions,
                 heading_vectors,
                 intensities,

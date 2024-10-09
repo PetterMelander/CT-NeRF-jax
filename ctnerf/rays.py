@@ -64,8 +64,8 @@ def get_coarse_samples(
     n_samples: int,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Get the sampled points along the ray between the near and far bound of the image using the stratified
-    sampling defined in the paper.
+    Get the sampled points along the ray between the near and far bound of the image using the
+    stratified sampling defined in the paper.
     
     Args:
         start_pos (torch.Tensor): shape (B, 3)
@@ -114,7 +114,8 @@ def get_fine_samples(
 
     t_samples = _fine_sampling(n_samples, coarse_sample_values, coarse_sampling_distances)
 
-    # concatenate the coarse samples with the fine samples and sort them so distance between adjacent samples can be calculated
+    # concatenate the coarse samples with the fine samples and
+    # sort them so distance between adjacent samples can be calculated
     t_samples = torch.cat([coarse_sample_ts, t_samples], dim=1)
     t_samples = torch.sort(t_samples, dim=1)[0]
     sampling_distances = _get_sampling_distances(t_samples)
@@ -166,7 +167,8 @@ def _create_z_rotation_matrix(
     angles: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
-    Create a batch of 3D rotation matrices for rotations around the z-axis. Also returns the heading vector.
+    Create a batch of 3D rotation matrices for rotations around the z-axis.
+    Also returns the heading vector.
     
     Args:
         angles (torch.Tensor): A tensor of shape (B,) containing the rotation angles in radians.
@@ -185,7 +187,10 @@ def _create_z_rotation_matrix(
     rotation_matrices[:, 2, 2] = 1
 
     # heading vector should be in the negative x direction since the start position is at x = 1
-    heading_vector = -torch.stack((cos_angles, sin_angles, torch.zeros(angles.shape[0], device=angles.device)), dim=1)
+    heading_vector = -torch.stack(
+        (cos_angles, sin_angles, torch.zeros(angles.shape[0], device=angles.device)),
+        dim=1
+    )
     
     return rotation_matrices, heading_vector
 
@@ -249,7 +254,11 @@ def _fine_sampling(
     x = torch.rand(coarse_sample_values.shape[0], num_samples, device=coarse_sample_values.device)
     inds = torch.searchsorted(cdf, x, right=False)
     cum_sampling_distances = torch.cumsum(coarse_sampling_distances, dim=1)
-    cum_sampling_distances = torch.cat([torch.zeros((cum_sampling_distances.shape[0], 1), device=cum_sampling_distances.device), cum_sampling_distances], dim=1)
+    cum_sampling_distances = torch.cat(
+        [torch.zeros((cum_sampling_distances.shape[0], 1), device=cum_sampling_distances.device),
+         cum_sampling_distances],
+        dim=1
+    )
     lower = torch.gather(cum_sampling_distances, 1, inds)
     upper = torch.gather(cum_sampling_distances, 1, inds + 1)
 
@@ -285,13 +294,3 @@ def _get_sampling_distances(
     sample_distances[:, -1] = 2 - t_samples[:, -1]
 
     return sample_distances
-
-
-
-def test():
-    coarse_samples = torch.tensor([[0.1, 0.6, 0.5, 0.1], [0.1, 0.8, 0.8, 0.2]])
-    coarse_sampling_distances = torch.tensor([[0.1, 0.9, 0.9, 0.1], [0.2, 0.8, 0.8, 0.2]])
-    _fine_sampling(coarse_samples, coarse_sampling_distances)
-
-if __name__ == "__main__":
-    test()
