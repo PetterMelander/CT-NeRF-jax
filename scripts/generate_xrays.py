@@ -1,24 +1,14 @@
-from ctnerf.transforms.ct_to_xray import CtToXray, NrrdReader
+from ctnerf.xray_creation import generate_xrays
 from ctnerf.utils import get_data_dir
-import math
-from PIL import Image
 
 
 
 datapath = get_data_dir()
+
 ct_path = datapath / "ct_images" / "nrrd" / "2 AC_CT_TBody.nrrd"
 output_dir = datapath / "xrays" / ct_path.stem
-output_dir.mkdir(exist_ok=True, parents=True)
-ct_reader = NrrdReader()
-ct_to_xray = CtToXray()
-img = ct_reader(path=ct_path, device="cuda:0").detach()
+angle_interval_size = 3
+max_angle = 180
+device = "cuda:0"
 
-angles = ""
-for angle in range(0, 180, 3):
-    xray_img = ct_to_xray(img, pixel_spacing=img.meta["spacing"][1,1]/10, angle=math.radians(angle))
-    xray_img = Image.fromarray((xray_img * (2**16 - 1)).astype('uint16').squeeze(0))
-    xray_img.save(output_dir / f"{angle}.png")
-    angles += f"{angle}\n"
-
-with (open(output_dir / "angles.txt", "w")) as f:
-    f.write(angles)
+generate_xrays(ct_path, output_dir, angle_interval_size, max_angle, device)
