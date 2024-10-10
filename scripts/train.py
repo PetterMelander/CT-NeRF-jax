@@ -1,18 +1,20 @@
-import torch
-from torch import autocast, GradScaler
-from torch.optim import Adam
-from torch.utils.data import DataLoader
-from torch.nn import MSELoss
-from ctnerf.models import XRayModel
-from ctnerf.dataloading import XRayDataset
-from ctnerf.utils import get_data_dir
-from ctnerf.rays import get_coarse_samples, get_fine_samples, log_beer_lambert_law
-from tqdm import tqdm
-from aim import Run, Figure
-import plotly.express as px
 import datetime
 from pathlib import Path
 
+import plotly.express as px
+import torch
+from aim import Figure, Run
+from torch import GradScaler, autocast
+from torch.nn import MSELoss
+from torch.optim import Adam
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+from ctnerf.dataloading import XRayDataset
+from ctnerf.models import XRayModel
+from ctnerf.rays import (get_coarse_samples, get_fine_samples,
+                         log_beer_lambert_law)
+from ctnerf.utils import get_data_dir
 
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.benchmark = True

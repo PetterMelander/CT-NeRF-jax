@@ -1,7 +1,9 @@
+import sys
+
+import torch
+
 from ctnerf.ct_creation import generate_ct
 from ctnerf.utils import get_data_dir, get_model_dir
-import torch
-import sys
 
 
 def main():

@@ -1,10 +1,12 @@
-from pathlib import Path
-from PIL import Image
-import torch
-from torch.utils.data import Dataset
 import math
-from ctnerf.rays import get_rays
+from pathlib import Path
+
 import numpy as np
+import torch
+from PIL import Image
+from torch.utils.data import Dataset
+
+from ctnerf.rays import get_rays
 
 
 class XRayDataset(Dataset):

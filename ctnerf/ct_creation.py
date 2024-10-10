@@ -1,8 +1,10 @@
+from pathlib import Path
+
 import torch
 from monai.data import NibabelWriter
 from tqdm import tqdm
+
 from ctnerf.models import XRayModel
-from pathlib import Path
 
 
 @torch.no_grad()

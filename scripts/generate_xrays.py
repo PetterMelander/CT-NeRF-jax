@@ -1,7 +1,7 @@
-from ctnerf.xray_creation import generate_xrays
-from ctnerf.utils import get_data_dir
 import sys
 
+from ctnerf.utils import get_data_dir
+from ctnerf.xray_creation import generate_xrays
 
 max_angle = int(sys.argv[1])
 angle_interval_size = int(sys.argv[2])
