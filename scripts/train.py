@@ -220,7 +220,7 @@ def _forward_backward(
     samples: torch.Tensor,
     sampling_distances: torch.Tensor,
     hparams: dict
-):
+) -> tuple[torch.Tensor, torch.Tensor]:
     
     model.train()
 
