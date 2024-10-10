@@ -40,7 +40,7 @@ def generate_ct(
         output_chunk = output_chunk.view(-1)
         output = torch.cat((output, output_chunk.cpu()))
 
-    output = output.reshape(img_size[0], img_size[1], img_size[2])
+    output = output.reshape(img_size[0], img_size[1], img_size[2]) # TODO: convert back to hounsfield units
 
     writer = NibabelWriter() # TODO: use nibabel itself instead of monai?
     writer.set_data_array(output, channel_dim=None)
