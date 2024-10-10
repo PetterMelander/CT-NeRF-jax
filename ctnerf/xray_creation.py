@@ -16,7 +16,8 @@ def generate_xrays(
     device: str
 ) -> None:
 
-    output_dir.rmdir()
+    if output_dir.exists():
+        output_dir.rmdir()
     output_dir.mkdir(exist_ok=True, parents=True)
     img = _read_nrrd(path=ct_path, device=device).detach()
 
