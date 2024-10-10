@@ -27,9 +27,9 @@ def train():
     run = Run()
     run["hparams"] = {
         "name": "dev-testing",
-        "n_layers": 8,
+        "n_layers": 12,
         "layer_dim": 256,
-        "L": 10,
+        "L": 20,
         "lr": 0.0001,
         "batch_size": 4096,
         "num_coarse_samples" : 64,
