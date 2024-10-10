@@ -14,14 +14,12 @@ import datetime
 from pathlib import Path
 
 
-
-torch.set_float32_matmul_precision('high')
+torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.allow_tf32 = True
 
 
 def train():
-
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
     run = Run()
@@ -32,14 +30,14 @@ def train():
         "L": 20,
         "lr": 0.0001,
         "batch_size": 4096,
-        "num_coarse_samples" : 64,
-        "num_fine_samples" : 128,
+        "num_coarse_samples": 64,
+        "num_fine_samples": 128,
         "device": "cuda:0",
         "s": 1,
         "k": 0.1,
-        "slice_size_cm": 0.15234375 * 512, # TODO: extract automatically?
+        "slice_size_cm": 0.15234375 * 512,  # TODO: extract automatically?
         "dtype": "bfloat16",
-        "use_amp": True
+        "use_amp": True,
     }
 
     if run["hparams"]["dtype"] == "bfloat16":
@@ -81,15 +79,16 @@ def train():
     total_batches = 0
     for epoch in range(1000):
         for start_positions, heading_vectors, intensities in tqdm(dataloader):
-
             # start_positions = start_positions.to(run["hparams"]["device"], dtype=dtype)
             # heading_vectors = heading_vectors.to(run["hparams"]["device"], dtype=dtype)
             intensities = intensities.to(run["hparams"]["device"], dtype=dtype)
 
-            (coarse_sample_ts,
-             coarse_attenuation_coeff_pred,
-             coarse_sampling_distances,
-             coarse_loss) = _coarse_step(
+            (
+                coarse_sample_ts,
+                coarse_attenuation_coeff_pred,
+                coarse_sampling_distances,
+                coarse_loss,
+            ) = _coarse_step(
                 start_positions,
                 heading_vectors,
                 intensities,
@@ -97,7 +96,7 @@ def train():
                 optimizer_coarse,
                 scaler_coarse,
                 mse_loss,
-                run["hparams"]
+                run["hparams"],
             )
 
             loss = _fine_step(
@@ -111,16 +110,15 @@ def train():
                 coarse_sample_ts,
                 coarse_attenuation_coeff_pred,
                 coarse_sampling_distances,
-                run["hparams"]
+                run["hparams"],
             )
             total_batches += 1
             run.track(loss.item(), name="loss", step=total_batches)
             run.track(coarse_loss.item(), name="coarse_loss", step=total_batches)
-        
+
         # generate cross section
         _eval_fig(model_fine, run["hparams"]["device"], epoch, run, "fine")
         _eval_fig(model_coarse, run["hparams"]["device"], epoch, run, "coarse")
-
 
         if epoch % 1 == 0:
             torch.save(model_coarse.state_dict(), model_save_path / f"{epoch}_coarse.pt")
@@ -136,12 +134,11 @@ def _coarse_step(
     optimizer_coarse: torch.optim.Optimizer,
     scaler_coarse: GradScaler,
     loss_fn: torch.nn.Module,
-    hparams: dict
+    hparams: dict,
 ):
-
     coarse_sample_ts, coarse_samples, coarse_sampling_distances = get_coarse_samples(
-        start_positions, 
-        heading_vectors, 
+        start_positions,
+        heading_vectors,
         hparams["num_coarse_samples"],
     )
 
@@ -153,7 +150,7 @@ def _coarse_step(
         loss_fn,
         coarse_samples,
         coarse_sampling_distances,
-        hparams
+        hparams,
     )
 
     # attenuation_coeff_pred_ = attenuation_coeff_pred.detach().cpu()
@@ -165,33 +162,37 @@ def _coarse_step(
     # del coarse_samples
     # del coarse_sampling_distances
 
-    return coarse_sample_ts, attenuation_coeff_pred.detach().cpu(), coarse_sampling_distances, loss.detach().cpu()
+    return (
+        coarse_sample_ts,
+        attenuation_coeff_pred.detach().cpu(),
+        coarse_sampling_distances,
+        loss.detach().cpu(),
+    )
 
 
 @torch.compile(mode="max-autotune", disable=False)
 def _fine_step(
-        start_positions: torch.Tensor,
-        heading_vectors: torch.Tensor,
-        intensities: torch.Tensor,
-        model_fine: XRayModel,
-        optimizer_fine: torch.optim.Optimizer,
-        scaler_fine: GradScaler,
-        loss_fn: torch.nn.Module,
-        coarse_sample_ts: torch.Tensor,
-        attenuation_coeff_pred: torch.Tensor,
-        coarse_sampling_distances: torch.Tensor,
-        hparams: dict
+    start_positions: torch.Tensor,
+    heading_vectors: torch.Tensor,
+    intensities: torch.Tensor,
+    model_fine: XRayModel,
+    optimizer_fine: torch.optim.Optimizer,
+    scaler_fine: GradScaler,
+    loss_fn: torch.nn.Module,
+    coarse_sample_ts: torch.Tensor,
+    attenuation_coeff_pred: torch.Tensor,
+    coarse_sampling_distances: torch.Tensor,
+    hparams: dict,
 ):
-    
     fine_samples, fine_sampling_distances = get_fine_samples(
         start_positions,
         heading_vectors,
         coarse_sample_ts,
         attenuation_coeff_pred,
         coarse_sampling_distances,
-        hparams["num_fine_samples"]
+        hparams["num_fine_samples"],
     )
-    
+
     loss, _ = _forward_backward(
         intensities,
         model_fine,
@@ -200,7 +201,7 @@ def _fine_step(
         loss_fn,
         fine_samples,
         fine_sampling_distances,
-        hparams
+        hparams,
     )
 
     # del _
@@ -219,9 +220,8 @@ def _forward_backward(
     loss_fn: torch.nn.Module,
     samples: torch.Tensor,
     sampling_distances: torch.Tensor,
-    hparams: dict
+    hparams: dict,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    
     model.train()
 
     samples = samples.to(intensities.device, dtype=intensities.dtype)
@@ -235,7 +235,7 @@ def _forward_backward(
             sampling_distances,
             hparams["s"],
             hparams["k"],
-            hparams["slice_size_cm"]
+            hparams["slice_size_cm"],
         )
         loss = loss_fn(intensity_pred, intensities)
         loss = torch.sum(loss)
@@ -276,7 +276,6 @@ def _eval_fig(
     run.track(Figure(fig), name="cross section", step=epoch, context={"model": tag})
 
     model.train()
-
 
 
 if __name__ == "__main__":

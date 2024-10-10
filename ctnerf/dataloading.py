@@ -7,20 +7,17 @@ from ctnerf.rays import get_rays
 import numpy as np
 
 
-
 class XRayDataset(Dataset):
-
-
     @torch.no_grad()
     def __init__(
-            self,
-            xray_dir: Path,
-            s: float = 1,
-            k: float = 0,
-            dtype: torch.dtype = torch.float32,
-            *args,
-            **kwargs
-        ) -> None:
+        self,
+        xray_dir: Path,
+        s: float = 1,
+        k: float = 0,
+        dtype: torch.dtype = torch.float32,
+        *args,
+        **kwargs,
+    ) -> None:
         super().__init__(*args, **kwargs)
 
         images = self._read_images(xray_dir)
@@ -31,7 +28,8 @@ class XRayDataset(Dataset):
         angles = []
         for png in xray_dir.iterdir():
             if png.suffix == ".png":
-                angles += [math.radians(float(str(png.stem)))] * pixels_per_image # TODO: does path need to be converted to str before float?
+                # TODO: does path need to be converted to str before float?
+                angles += [math.radians(float(str(png.stem)))] * pixels_per_image
         angles = torch.tensor(angles)
 
         # setup positions
@@ -45,13 +43,14 @@ class XRayDataset(Dataset):
         self.intensities = torch.zeros(self.len)
         for image in images:
             intensities = torch.tensor(np.array(image, dtype=np.uint16)).T.reshape(-1)
-            self.intensities[index: index + pixels_per_image] = intensities
+            self.intensities[index : index + pixels_per_image] = intensities
             index += pixels_per_image
-        
+
         # transform intensities to have values that are more evenly distributed
-        self.intensities = self.intensities / (2**16 - 1) # TODO: find bit depth more programatically
+        # TODO: find bit depth more programatically
+        self.intensities = self.intensities / (2**16 - 1)
         self.intensities = torch.log(self.intensities + k) / s
-        self.intensities = torch.nan_to_num(self.intensities) # intensity 0 gives -inf after log
+        self.intensities = torch.nan_to_num(self.intensities)  # intensity 0 gives -inf after log
 
         image_size = torch.tensor(images[0].size).expand(self.len, 2)
         self.start_positions, self.heading_vectors = get_rays(positions, angles, image_size)
@@ -60,17 +59,18 @@ class XRayDataset(Dataset):
         self.heading_vectors = self.heading_vectors.to(dtype=dtype)
         self.intensities = self.intensities.to(dtype=dtype)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(
+        self, index: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.start_positions[index], self.heading_vectors[index], self.intensities[index]
-    
 
     def __len__(self) -> int:
         return self.len
-    
 
     def _read_images(self, path: Path) -> list[Image.Image]:
         images = []
-        for image_path in path.iterdir(): # TODO: does this iterate over images in same order as angles?
+        # TODO: does this iterate over images in same order as angles?
+        for image_path in path.iterdir():
             if image_path.suffix == ".png":
                 images.append(Image.open(image_path))
         return images

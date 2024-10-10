@@ -1,15 +1,14 @@
 import torch
 
 
-
 def log_beer_lambert_law(
-    attenuation_coeffs: torch.Tensor, 
+    attenuation_coeffs: torch.Tensor,
     distances: torch.Tensor,
     s: float = 1,
     k: float = 0,
-    slice_size_cm: float = 0.97 * 512
+    slice_size_cm: float = 0.97 * 512,
 ) -> torch.Tensor:
-    """ 
+    """
     Uses Beer-Lambert law to calculate transmittance given the
     attenuation coefficients and distances of sampled points along ray.
     Uses a version of the law that has been adjusted for scaling of the
@@ -35,14 +34,14 @@ def log_beer_lambert_law(
 
 @torch.no_grad()
 def get_rays(
-    pixel_pos: torch.Tensor, 
-    angle: torch.Tensor, 
-    img_shape: torch.Tensor, # TODO: does this really need to be batched?
+    pixel_pos: torch.Tensor,
+    angle: torch.Tensor,
+    img_shape: torch.Tensor,  # TODO: does this really need to be batched?
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Get start position and heading vector for each ray, given the position of the pixel
     and the angle of the ray.
-    
+
     Args:
         pixel_pos (torch.Tensor): shape (B, 2)
         angle (torch.Tensor): shape (B,)
@@ -53,20 +52,20 @@ def get_rays(
     """
 
     start_pos, heading_vector = _get_start_pos(pixel_pos, angle, img_shape)
-    
+
     return start_pos, heading_vector
 
 
 @torch.no_grad()
 def get_coarse_samples(
-    start_pos: torch.Tensor, 
-    heading_vector: torch.Tensor, 
+    start_pos: torch.Tensor,
+    heading_vector: torch.Tensor,
     n_samples: int,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Get the sampled points along the ray between the near and far bound of the image using the
     stratified sampling defined in the paper.
-    
+
     Args:
         start_pos (torch.Tensor): shape (B, 3)
         heading_vector (torch.Tensor): shape (B, 3)
@@ -89,7 +88,7 @@ def get_coarse_samples(
 
 @torch.no_grad()
 def get_fine_samples(
-    start_pos: torch.Tensor, 
+    start_pos: torch.Tensor,
     heading_vector: torch.Tensor,
     coarse_sample_ts: torch.Tensor,
     coarse_sample_values: torch.Tensor,
@@ -98,8 +97,8 @@ def get_fine_samples(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Get the sampled points along the ray between the two t's in ray_bounds using the stratified
-    sampling defined in the paper. 
-    
+    sampling defined in the paper.
+
     Args:
         start_pos (torch.Tensor): shape (B, 3)
         heading_vector (torch.Tensor): shape (B, 3)
@@ -129,14 +128,12 @@ def get_fine_samples(
 
 @torch.no_grad()
 def _get_start_pos(
-    pixel_pos: torch.Tensor, 
-    angle: torch.Tensor, 
-    img_shape: torch.Tensor
+    pixel_pos: torch.Tensor, angle: torch.Tensor, img_shape: torch.Tensor
 ) -> torch.Tensor:
     """
     Helper function to get the start position and heading vector
     for a ray in an image.
-    
+
     Args:
         pixel_pos (torch.Tensor): shape (B, 2)
         angle (torch.Tensor): shape (B,)
@@ -149,11 +146,13 @@ def _get_start_pos(
 
     # get normalized position before accounting for angle
     normalized_pos = 2 * pixel_pos / img_shape - 1
-    x = torch.ones((pixel_pos.shape[0], 1), device=pixel_pos.device) # start position is always at x = 1
+
+    # start position is always at x = 1
+    x = torch.ones((pixel_pos.shape[0], 1), device=pixel_pos.device)
     normalized_pos = torch.cat((x, normalized_pos), dim=1)
 
     # invert z axis
-    normalized_pos[:,2] *= -1
+    normalized_pos[:, 2] *= -1
 
     # rotate to account for angle
     rotation_matrix, heading_vector = _create_z_rotation_matrix(angle)
@@ -163,16 +162,14 @@ def _get_start_pos(
 
 
 @torch.no_grad()
-def _create_z_rotation_matrix(
-    angles: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
+def _create_z_rotation_matrix(angles: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Create a batch of 3D rotation matrices for rotations around the z-axis.
     Also returns the heading vector.
-    
+
     Args:
         angles (torch.Tensor): A tensor of shape (B,) containing the rotation angles in radians.
-        
+
     Returns:
         torch.Tensor: A tensor of shape (B, 3, 3) containing the rotation matrices.
     """
@@ -188,21 +185,16 @@ def _create_z_rotation_matrix(
 
     # heading vector should be in the negative x direction since the start position is at x = 1
     heading_vector = -torch.stack(
-        (cos_angles, sin_angles, torch.zeros(angles.shape[0], device=angles.device)),
-        dim=1
+        (cos_angles, sin_angles, torch.zeros(angles.shape[0], device=angles.device)), dim=1
     )
-    
+
     return rotation_matrices, heading_vector
 
 
 @torch.no_grad()
-def _coarse_sampling(
-    batch_size: int,
-    n_samples: int,
-    device: torch.device
-) -> torch.Tensor:
+def _coarse_sampling(batch_size: int, n_samples: int, device: torch.device) -> torch.Tensor:
     """
-    Samples n_samples points along the ray using the stratified sampling defined in the paper. 
+    Samples n_samples points along the ray using the stratified sampling defined in the paper.
 
     Args:
         batch_size (int): batch size
@@ -215,7 +207,7 @@ def _coarse_sampling(
     interval_size = 2 / n_samples
 
     uniform_samples = torch.arange(0, n_samples, device=device).repeat(batch_size, 1)
-    uniform_samples = uniform_samples * interval_size # This rescales each row to [0, 2)
+    uniform_samples = uniform_samples * interval_size  # This rescales each row to [0, 2)
 
     perturbation = torch.rand(batch_size, n_samples, device=device) * interval_size
 
@@ -230,8 +222,8 @@ def _fine_sampling(
 ) -> torch.Tensor:
     """
     Samples n_samples points along the ray between the two t's in ray_bounds using the stratified
-    sampling defined in the paper. 
-    
+    sampling defined in the paper.
+
     Args:
         num_samples (int): number of samples
         coarse_sample_values (torch.Tensor): shape (B, n_samples). Contains the output values of the coarse model.
@@ -247,7 +239,7 @@ def _fine_sampling(
     pdf = coarse_sample_values * coarse_sampling_distances
     pdf = pdf / torch.sum(pdf, dim=1, keepdim=True)
     cdf = torch.cumsum(pdf, dim=1)
-    cdf[..., -1] = 1 + 1e-5 # to avoid rounding errors causing index out of bounds if x is close to 1
+    cdf[..., -1] = (1 + 1e-5)  # to avoid rounding errors causing index out of bounds if x is close to 1
 
     # inverse transform sampling
     # each random x will fall between two sampling distances, lower and upper
@@ -255,9 +247,11 @@ def _fine_sampling(
     inds = torch.searchsorted(cdf, x, right=False)
     cum_sampling_distances = torch.cumsum(coarse_sampling_distances, dim=1)
     cum_sampling_distances = torch.cat(
-        [torch.zeros((cum_sampling_distances.shape[0], 1), device=cum_sampling_distances.device),
-         cum_sampling_distances],
-        dim=1
+        [
+            torch.zeros((cum_sampling_distances.shape[0], 1), device=cum_sampling_distances.device),
+            cum_sampling_distances,
+        ],
+        dim=1,
     )
     lower = torch.gather(cum_sampling_distances, 1, inds)
     upper = torch.gather(cum_sampling_distances, 1, inds + 1)
@@ -271,15 +265,15 @@ def _fine_sampling(
 
 @torch.no_grad()
 def _get_sampling_distances(
-    t_samples: torch.Tensor, 
+    t_samples: torch.Tensor,
 ) -> torch.Tensor:
     """
     Get the distance between sampled points along the ray. The distance associated with each sample
     is the distance between that sample and the next sample. The distance for sample sigma_i is
     t_{i+1} - t_i. The distance for the last sample is the distance between the last sample and the
-    far bound of the image. 
-    
-    This distance can be calculated from t since the heading vector has magnitue 1. 
+    far bound of the image.
+
+    This distance can be calculated from t since the heading vector has magnitue 1.
 
     Args:
         t_samples (torch.Tensor): shape (B, n_samples)

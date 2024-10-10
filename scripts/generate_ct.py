@@ -4,9 +4,7 @@ import torch
 import sys
 
 
-
 def main():
-
     device = torch.device("cuda:0")
     output_name = sys.argv[1]
     img_size = [512, 512, 536]
@@ -18,14 +16,7 @@ def main():
     chunk_size = 4096 * 128
 
     generate_ct(
-        model_path,
-        n_layers,
-        layer_size,
-        pos_embed_dim,
-        ct_path,
-        img_size,
-        chunk_size,
-        device
+        model_path, n_layers, layer_size, pos_embed_dim, ct_path, img_size, chunk_size, device
     )
 
 

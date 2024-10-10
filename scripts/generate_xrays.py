@@ -3,7 +3,6 @@ from ctnerf.utils import get_data_dir
 import sys
 
 
-
 max_angle = int(sys.argv[1])
 angle_interval_size = int(sys.argv[2])
 
