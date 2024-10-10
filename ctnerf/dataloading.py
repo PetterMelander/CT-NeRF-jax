@@ -29,9 +29,9 @@ class XRayDataset(Dataset):
 
         # setup angles
         angles = []
-        with open(xray_dir / "angles.txt", "r") as f:
-            for line in f:
-                angles += [math.radians(float(line.strip()))] * pixels_per_image
+        for png in xray_dir.iterdir():
+            if png.suffix == ".png":
+                angles += [math.radians(float(str(png.stem)))] * pixels_per_image # TODO: does path need to be converted to str before float?
         angles = torch.tensor(angles)
 
         # setup positions
@@ -70,7 +70,7 @@ class XRayDataset(Dataset):
 
     def _read_images(self, path: Path) -> list[Image.Image]:
         images = []
-        for image_path in path.iterdir():
+        for image_path in path.iterdir(): # TODO: does this iterate over images in same order as angles?
             if image_path.suffix == ".png":
                 images.append(Image.open(image_path))
         return images
