@@ -92,7 +92,7 @@ def get_fine_samples(
     heading_vector: torch.Tensor,
     coarse_sample_ts: torch.Tensor,
     coarse_sample_values: torch.Tensor,
-    coarse_sampling_distances: torch.Tensor,
+    coarse_sampling_distances: torch.Tensor, # TODO: these can be calculated from t's. Gives one extra calculation but less args to pass around
     n_samples: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
