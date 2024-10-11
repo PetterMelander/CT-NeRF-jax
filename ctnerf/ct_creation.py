@@ -20,7 +20,7 @@ def generate_ct(
     device: torch.device,
 ) -> None:
     model = XRayModel(n_layers, layer_size, pos_embed_dim)
-    model.load_state_dict(torch.load(model_path, weights_only=True))
+    model.load_state_dict(torch.load(model_path, weights_only=True)["fine_model"])
     model.to(device)
     model.eval()
 
@@ -49,5 +49,5 @@ def generate_ct(
     output = output.reshape(img_size[0], img_size[1], img_size[2])
 
     # TODO: handle voxel sizes
-    img = nib.nifti1.Nifti1Image(output.numpy, np.eye(4))
+    img = nib.nifti1.Nifti1Image(output.numpy(), np.eye(4))
     nib.nifti1.save(img, ct_path)

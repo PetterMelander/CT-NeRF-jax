@@ -25,9 +25,9 @@ class XRayModel(torch.nn.Module):
             x = torch.nn.functional.relu(layer(x))
 
         x = self.out(x)
-        if self.training:
-            x += torch.randn_like(x, device=x.device) * 0.01
-        return torch.nn.functional.gelu(x)
+        # if self.training:
+        #     x += torch.randn_like(x, device=x.device) * 0.01
+        return torch.nn.functional.relu(x)
 
     @torch.no_grad()
     def _positional_encoding(self, coords: torch.Tensor, L: int) -> torch.Tensor:
