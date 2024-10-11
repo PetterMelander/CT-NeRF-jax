@@ -1,3 +1,4 @@
+import json
 import shutil
 from pathlib import Path
 
@@ -17,17 +18,18 @@ def generate_xrays(
     output_dir.mkdir(exist_ok=True, parents=True)
     img = _read_nrrd(path=ct_path, device=device).detach()
 
-    angles = ""
+    file_angle_dict = {}
     for angle in range(0, max_angle, angle_interval_size):
+        output_file = f"{angle}.png"
         xray = _ct_to_xray(
             img, pixel_spacing=img.meta["spacing"][1, 1] / 10, angle=np.radians(angle)
         )
         xray = Image.fromarray((xray * (2**16 - 1)).astype("uint16").squeeze(0))
-        xray.save(output_dir / f"{angle}.png")
-        angles += f"{angle}\n"
-
-    with open(output_dir / "angles.txt", "w") as f:
-        f.write(angles)
+        xray.save(output_dir / output_file)
+        file_angle_dict[output_file] = angle
+    
+    with open(output_dir / "meta.json", "w") as f:
+        json.dump(file_angle_dict, f)
 
 
 def _read_nrrd(path: Path, device: str) -> torch.Tensor:

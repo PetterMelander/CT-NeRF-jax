@@ -1,3 +1,4 @@
+import json
 import math
 from pathlib import Path
 
@@ -22,17 +23,7 @@ class XRayDataset(Dataset):
     ) -> None:
         super().__init__(*args, **kwargs)
 
-        images = self._read_images(xray_dir)
-        pixels_per_image = images[0].size[0] * images[0].size[1]
-        self.len = len(images) * pixels_per_image
-
-        # setup angles
-        angles = []
-        for png in xray_dir.iterdir():
-            if png.suffix == ".png":
-                # TODO: does path need to be converted to str before float?
-                angles += [math.radians(float(str(png.stem)))] * pixels_per_image
-        angles = torch.tensor(angles)
+        images, angles, self.len = self._read_images(xray_dir)
 
         # setup positions
         x = torch.linspace(0, images[0].size[0] - 1, images[0].size[0])
@@ -44,9 +35,10 @@ class XRayDataset(Dataset):
         index = 0
         self.intensities = torch.zeros(self.len)
         for image in images:
+            pixel_count = image.size[0] * image.size[1]
             intensities = torch.tensor(np.array(image, dtype=np.uint16)).T.reshape(-1)
-            self.intensities[index : index + pixels_per_image] = intensities
-            index += pixels_per_image
+            self.intensities[index : index + pixel_count] = intensities
+            index += pixel_count
 
         # transform intensities to have values that are more evenly distributed
         # TODO: find bit depth more programatically
@@ -69,10 +61,19 @@ class XRayDataset(Dataset):
     def __len__(self) -> int:
         return self.len
 
-    def _read_images(self, path: Path) -> list[Image.Image]:
+    def _read_images(self, train_dir: Path) -> tuple[list[Image.Image], torch.Tensor, int]:
+        with open(train_dir / "meta.json", "r") as f:
+            file_angle_dict = json.load(f)
+
         images = []
-        # TODO: does this iterate over images in same order as angles?
-        for image_path in path.iterdir():
-            if image_path.suffix == ".png":
-                images.append(Image.open(image_path))
-        return images
+        angles = []
+        total_pixels = 0
+        for file, angle in file_angle_dict.items():
+            image = Image.open(train_dir / file)
+            pixel_count = image.size[0] * image.size[1]
+            total_pixels += pixel_count
+            images.append(image)
+            angles += [(math.radians(float(angle)))] * pixel_count
+        angles = torch.tensor(angles)
+
+        return images, angles, total_pixels

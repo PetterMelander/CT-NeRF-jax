@@ -1,7 +1,8 @@
 from pathlib import Path
 
+import nibabel as nib
+import numpy as np
 import torch
-from monai.data import NibabelWriter
 from tqdm import tqdm
 
 from ctnerf.models import XRayModel
@@ -40,11 +41,13 @@ def generate_ct(
         output_chunk = output_chunk.view(-1)
         output = torch.cat((output, output_chunk.cpu()))
 
-    # TODO: convert back to hounsfield units
+    # Convert to hounsfield
+    mu_air = 0.0002504  # 50 keV, per cm (https://physics.nist.gov/PhysRefData/XrayMassCoef/ComTab/air.html)
+    mu_water = 0.2269  # 50 keV, per cm (https://physics.nist.gov/PhysRefData/XrayMassCoef/ComTab/water.html)
+    output = 1000 * (output - mu_water) / (mu_water - mu_air)
+
     output = output.reshape(img_size[0], img_size[1], img_size[2])
 
-    writer = NibabelWriter()  # TODO: use nibabel itself instead of monai?
-    writer.set_data_array(output, channel_dim=None)
     # TODO: handle voxel sizes
-    writer.set_metadata({"affine": torch.eye(4), "original_affine": torch.eye(4)})
-    writer.write(ct_path, verbose=False)
+    img = nib.nifti1.Nifti1Image(output.numpy, np.eye(4))
+    nib.nifti1.save(img, ct_path)
