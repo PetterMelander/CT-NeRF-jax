@@ -36,12 +36,12 @@ def train():
         "device": "cuda:0",
         "s": 1,
         "k": 0.1,
-        "slice_size_cm": 0.15234375 * 512,  # TODO: extract automatically?
+        "slice_size_cm": 0.15234375 * 512,  # TODO: extract automatically from metadata
         "dtype": "bfloat16",
         "use_amp": True,
         "model_save_interval": 1,
-        "model_load_path": f"{get_model_dir()}/dev-testing/20241011-194445",
-        # "model_load_path": None,
+        # "model_load_path": f"{get_model_dir()}/dev-testing/20241011-194445",
+        "model_load_path": None,
         "resume_epoch": 1,
     }
 
@@ -279,7 +279,7 @@ def _eval_fig(
     tag: str,
 ):
     model.eval()
-    yv = torch.linspace(-1, 1, 512)
+    yv = torch.linspace(-1, 1, 512) # TODO: get from metadata
     zv = torch.linspace(-1, 1, 536)
     yv, zv = torch.meshgrid(yv, zv, indexing="ij")
     coords = torch.stack([torch.zeros_like(yv), yv, zv], dim=-1)

@@ -48,6 +48,6 @@ def generate_ct(
 
     output = output.reshape(img_size[0], img_size[1], img_size[2])
 
-    # TODO: handle voxel sizes
+    # TODO: handle voxel sizes and other such image format things
     img = nib.nifti1.Nifti1Image(output.numpy(), np.eye(4))
-    nib.nifti1.save(img, ct_path)
+    nib.nifti1.save(img, ct_path) # TODO: add metadata?

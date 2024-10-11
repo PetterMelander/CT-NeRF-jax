@@ -5,34 +5,47 @@ from pathlib import Path
 import nrrd
 import numpy as np
 import torch
-from monai.data import MetaTensor
 from monai.transforms.spatial.functional import rotate
 from PIL import Image
 
+from ctnerf.utils import convert_arrays_to_lists
 
+
+@torch.no_grad()
 def generate_xrays(
     ct_path: Path, output_dir: Path, angle_interval_size: int, max_angle: int, device: str
 ) -> None:
+    
+    # TODO: get metadata in nifti format: https://discourse.slicer.org/t/convert-nrrd-to-nii-gz/16694/3
+    metadata = {}
+    metadata["bits"] = 16
+    metadata["dtype"] = "uint16"
+
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
-    img = _read_nrrd(path=ct_path, device=device).detach()
+    img, ct_metadata = _read_nrrd(path=ct_path, device=device)
+    metadata["ct_metadata"] = ct_metadata
 
     file_angle_dict = {}
     for angle in range(0, max_angle, angle_interval_size):
         output_file = f"{angle}.png"
         xray = _ct_to_xray(
-            img, pixel_spacing=img.meta["spacing"][1, 1] / 10, angle=np.radians(angle)
+            img, pixel_spacing=ct_metadata["space directions"][1, 1] / 10, angle=np.radians(angle)
         )
-        xray = Image.fromarray((xray * (2**16 - 1)).astype("uint16").squeeze(0))
+        xray = Image.fromarray(
+            (xray * (2 ** metadata["bits"] - 1)).astype(metadata["dtype"]).squeeze(0)
+        )
         xray.save(output_dir / output_file)
         file_angle_dict[output_file] = angle
-    
+    metadata["file_angle_map"] = file_angle_dict
+
+    metadata = convert_arrays_to_lists(metadata)
     with open(output_dir / "meta.json", "w") as f:
-        json.dump(file_angle_dict, f)
+        json.dump(metadata, f)
 
 
-def _read_nrrd(path: Path, device: str) -> torch.Tensor:
+def _read_nrrd(path: Path, device: str) -> tuple[torch.Tensor, dict]:
     """
     Reads a .nrrd file and returns a torch.Tensor with shape (C, H, W, D).
     Makes some assumptions about the orientation of the image.
@@ -46,12 +59,9 @@ def _read_nrrd(path: Path, device: str) -> torch.Tensor:
     """
     img, header = nrrd.read(path, index_order="C")
     img = np.flip(img, axis=0).copy()
-    header["spacing"] = np.fliplr(np.flipud(header["space directions"]))
-    header["origin"] = np.flip(header["space origin"])
-    header["size"] = np.flip(header["sizes"])
-    img = MetaTensor(img, device=device, meta=header)
+    img = torch.tensor(img, device=device)
     img = img.unsqueeze(0).permute(0, 1, 3, 2)
-    return img
+    return img, header
 
 
 def _ct_to_xray(

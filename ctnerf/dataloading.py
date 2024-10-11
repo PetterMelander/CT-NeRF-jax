@@ -26,7 +26,7 @@ class XRayDataset(Dataset):
         images, angles, self.len = self._read_images(xray_dir)
 
         # setup positions
-        x = torch.linspace(0, images[0].size[0] - 1, images[0].size[0])
+        x = torch.linspace(0, images[0].size[0] - 1, images[0].size[0]) # TODO: extract img size from metadata
         y = torch.linspace(0, images[0].size[1] - 1, images[0].size[1])
         x, y = torch.meshgrid(x, y, indexing="ij")
         positions = torch.stack((x, y), dim=-1).reshape(-1, 2).repeat(len(images), 1)
@@ -35,13 +35,13 @@ class XRayDataset(Dataset):
         index = 0
         self.intensities = torch.zeros(self.len)
         for image in images:
-            pixel_count = image.size[0] * image.size[1]
-            intensities = torch.tensor(np.array(image, dtype=np.uint16)).T.reshape(-1)
+            pixel_count = image.size[0] * image.size[1] # TODO: find constant img size from metadata
+            intensities = torch.tensor(np.array(image, dtype=np.uint16)).T.reshape(-1)# TODO: find dtype from metadata
             self.intensities[index : index + pixel_count] = intensities
             index += pixel_count
 
         # transform intensities to have values that are more evenly distributed
-        # TODO: find bit depth more programatically
+        # TODO: find bit depth from metadata
         self.intensities = self.intensities / (2**16 - 1)
         self.intensities = torch.log(self.intensities + k) / s
         self.intensities = torch.nan_to_num(self.intensities)  # intensity 0 gives -inf after log
@@ -63,12 +63,12 @@ class XRayDataset(Dataset):
 
     def _read_images(self, train_dir: Path) -> tuple[list[Image.Image], torch.Tensor, int]:
         with open(train_dir / "meta.json", "r") as f:
-            file_angle_dict = json.load(f)
+            metadata = json.load(f)
 
         images = []
         angles = []
-        total_pixels = 0
-        for file, angle in file_angle_dict.items():
+        total_pixels = 0 # TODO: find constant img size from metadata
+        for file, angle in metadata["file_angle_map"].items():
             image = Image.open(train_dir / file)
             pixel_count = image.size[0] * image.size[1]
             total_pixels += pixel_count
