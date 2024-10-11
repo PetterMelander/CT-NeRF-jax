@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import nrrd
@@ -12,7 +13,7 @@ def generate_xrays(
     ct_path: Path, output_dir: Path, angle_interval_size: int, max_angle: int, device: str
 ) -> None:
     if output_dir.exists():
-        output_dir.rmdir()
+        shutil.rmtree(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
     img = _read_nrrd(path=ct_path, device=device).detach()
 
