@@ -36,7 +36,7 @@ class XRayDataset(Dataset):
         self.intensities = torch.zeros(self.len)
         for image in images:
             pixel_count = image.size[0] * image.size[1] # TODO: find constant img size from metadata
-            intensities = torch.tensor(np.array(image, dtype=np.uint16)).T.reshape(-1)# TODO: find dtype from metadata
+            intensities = torch.tensor(np.array(image, dtype=np.uint16)).T.reshape(-1) # why is this transposed? # TODO: find dtype from metadata
             self.intensities[index : index + pixel_count] = intensities
             index += pixel_count
 
@@ -46,12 +46,16 @@ class XRayDataset(Dataset):
         self.intensities = torch.log(self.intensities + k) / s
         self.intensities = torch.nan_to_num(self.intensities)  # intensity 0 gives -inf after log
 
-        image_size = torch.tensor(images[0].size).expand(self.len, 2)
+        image_size = torch.tensor(images[0].size) # TODO: get img size from metatdata
         self.start_positions, self.heading_vectors = get_rays(positions, angles, image_size)
 
         self.start_positions = self.start_positions.to(dtype=dtype)
         self.heading_vectors = self.heading_vectors.to(dtype=dtype)
         self.intensities = self.intensities.to(dtype=dtype)
+
+        self.start_positions.requires_grad_(False)
+        self.heading_vectors.requires_grad_(False)
+        self.intensities.requires_grad_(False)
 
     def __getitem__(
         self, index: int

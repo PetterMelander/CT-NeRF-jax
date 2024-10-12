@@ -35,8 +35,8 @@ def log_beer_lambert_law(
 @torch.no_grad()
 def get_rays(
     pixel_pos: torch.Tensor,
-    angle: torch.Tensor,
-    img_shape: torch.Tensor,  # TODO: does this really need to be batched?
+    angles: torch.Tensor,
+    img_shape: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Get start position and heading vector for each ray, given the position of the pixel
@@ -51,7 +51,19 @@ def get_rays(
         torch.Tensor: shape (B, 3)
     """
 
-    start_pos, heading_vector = _get_start_pos(pixel_pos, angle, img_shape)
+    # get normalized position before accounting for angle
+    normalized_pos = 2 * pixel_pos / img_shape - 1
+
+    # start position is always at x = 1
+    x = torch.ones((pixel_pos.shape[0], 1), device=pixel_pos.device)
+    normalized_pos = torch.cat((x, normalized_pos), dim=1)
+
+    # invert z axis
+    normalized_pos[:, 2] *= -1
+
+    # rotate to account for angle
+    rotation_matrix, heading_vector = _create_z_rotation_matrix(angles)
+    start_pos = torch.bmm(rotation_matrix, normalized_pos.unsqueeze(2)).squeeze(2)
 
     return start_pos, heading_vector
 
@@ -83,7 +95,11 @@ def get_coarse_samples(
     sampled_points = start_pos.unsqueeze(1) + t_samples.unsqueeze(2) * heading_vector.unsqueeze(1)
     sampled_points = sampled_points.reshape(-1, 3)
 
-    return t_samples, sampled_points, sampling_distances
+    return (
+        t_samples.requires_grad_(False),
+        sampled_points.requires_grad_(False),
+        sampling_distances.requires_grad_(False),
+    )
 
 
 @torch.no_grad()
@@ -92,7 +108,7 @@ def get_fine_samples(
     heading_vector: torch.Tensor,
     coarse_sample_ts: torch.Tensor,
     coarse_sample_values: torch.Tensor,
-    coarse_sampling_distances: torch.Tensor, # TODO: these can be calculated from t's. Gives one extra calculation but less args to pass around
+    coarse_sampling_distances: torch.Tensor,  # TODO: these can be calculated from t's. Gives one extra calculation but less args to pass around
     n_samples: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -123,42 +139,7 @@ def get_fine_samples(
     sampled_points = start_pos.unsqueeze(1) + t_samples.unsqueeze(2) * heading_vector.unsqueeze(1)
     sampled_points = sampled_points.reshape(-1, 3)
 
-    return sampled_points, sampling_distances
-
-
-@torch.no_grad()
-def _get_start_pos(
-    pixel_pos: torch.Tensor, angle: torch.Tensor, img_shape: torch.Tensor
-) -> torch.Tensor:
-    """
-    Helper function to get the start position and heading vector
-    for a ray in an image.
-
-    Args:
-        pixel_pos (torch.Tensor): shape (B, 2)
-        angle (torch.Tensor): shape (B,)
-        img_shape (torch.Tensor): shape (B, 2)
-
-    Returns:
-        torch.Tensor: shape (B, 3)
-        torch.Tensor: shape (B, 3)
-    """
-
-    # get normalized position before accounting for angle
-    normalized_pos = 2 * pixel_pos / img_shape - 1
-
-    # start position is always at x = 1
-    x = torch.ones((pixel_pos.shape[0], 1), device=pixel_pos.device)
-    normalized_pos = torch.cat((x, normalized_pos), dim=1)
-
-    # invert z axis
-    normalized_pos[:, 2] *= -1
-
-    # rotate to account for angle
-    rotation_matrix, heading_vector = _create_z_rotation_matrix(angle)
-    start_pos = torch.bmm(rotation_matrix, normalized_pos.unsqueeze(2)).squeeze(2)
-
-    return start_pos, heading_vector
+    return sampled_points.requires_grad_(False), sampling_distances.requires_grad_(False)
 
 
 @torch.no_grad()
@@ -239,7 +220,9 @@ def _fine_sampling(
     pdf = coarse_sample_values * coarse_sampling_distances
     pdf = pdf / torch.sum(pdf, dim=1, keepdim=True)
     cdf = torch.cumsum(pdf, dim=1)
-    cdf[..., -1] = (1 + 1e-5)  # to avoid rounding errors causing index out of bounds if x is close to 1
+    cdf[..., -1] = (
+        1 + 1e-5
+    )  # to avoid rounding errors causing index out of bounds if x is close to 1
 
     # inverse transform sampling
     # each random x will fall between two sampling distances, lower and upper
