@@ -6,7 +6,7 @@ import torch
 from aim import Figure, Run
 from torch import GradScaler, autocast
 from torch.nn import MSELoss
-from torch.optim import AdamW
+from torch.optim import Adam
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -20,13 +20,12 @@ torch.backends.cudnn.benchmark = True
 torch.backends.cuda.allow_tf32 = True
 
 
-# @torch.compile(mode="max-autotune", disable=False)
 def train():
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
     hparams = {
         "name": "dev-testing",
-        "n_layers": 8,
+        "n_layers": 12,
         "layer_dim": 256,
         "L": 20,
         "lr": 0.0001,
@@ -37,16 +36,13 @@ def train():
         "s": 1,
         "k": 0.1,
         "slice_size_cm": 0.15234375 * 512,  # TODO: extract automatically from metadata
-        "dtype": "bfloat16",
-        "use_amp": True,
+        "dtype": "float32",
+        "use_amp": False,
         "model_save_interval": 1,
         # "model_load_path": f"{get_model_dir()}/dev-testing/20241011-194445",
         "model_load_path": None,
         "resume_epoch": 1,
     }
-
-    run = Run()
-    run["hparams"] = hparams
 
     if hparams["dtype"] == "bfloat16":
         dtype = torch.bfloat16
@@ -55,14 +51,21 @@ def train():
     elif hparams["dtype"] == "float32":
         dtype = torch.float32
     else:
-        raise ValueError(f"Unknown dtype: {run['hparams']['dtype']}")
+        raise ValueError(f"Unknown dtype: {hparams['dtype']}")
 
-    model_save_path = get_model_dir() / f"{run['hparams']['name']}" / f"{timestamp}"
+    model_save_path = get_model_dir() / f"{hparams['name']}" / f"{timestamp}"
     model_save_path.mkdir(parents=True, exist_ok=True)
 
     datapath = get_data_dir() / "xrays" / "2 AC_CT_TBody"
     dataset = XRayDataset(datapath, s=hparams["s"], k=hparams["k"], dtype=dtype)
-    dataloader = DataLoader(dataset, batch_size=hparams["batch_size"], shuffle=True)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=hparams["batch_size"],
+        shuffle=True,
+        num_workers=8,
+        pin_memory=True,
+        pin_memory_device=hparams["device"],
+    )
 
     coarse_model = XRayModel(
         n_layers=hparams["n_layers"],
@@ -77,11 +80,11 @@ def train():
     coarse_model.to(hparams["device"])
     fine_model.to(hparams["device"])
 
-    coarse_optimizer = AdamW(coarse_model.parameters(), lr=hparams["lr"], fused=True)
-    fine_optimizer = AdamW(fine_model.parameters(), lr=hparams["lr"], fused=True)
+    coarse_optimizer = Adam(coarse_model.parameters(), lr=hparams["lr"], fused=True)
+    fine_optimizer = Adam(fine_model.parameters(), lr=hparams["lr"], fused=True)
 
     if hparams["model_load_path"] is not None:
-        model_file = Path(hparams["model_load_path"]) / f"{run['hparams']['resume_epoch']}.pt"
+        model_file = Path(hparams["model_load_path"]) / f"{hparams['resume_epoch']}.pt"
         weights = torch.load(model_file, weights_only=True, map_location=hparams["device"])
         coarse_model.load_state_dict(weights["coarse_model"])
         fine_model.load_state_dict(weights["fine_model"])
@@ -89,10 +92,14 @@ def train():
         fine_optimizer.load_state_dict(weights["fine_optimizer"])
         total_batches = weights["total_batches"]
         start_epoch = weights["epoch"]
+        run_hash = weights["run_hash"]
     else:
         total_batches = 0
         start_epoch = 0
+        run_hash = None
 
+    run = Run(run_hash)
+    run["hparams"] = hparams
 
     mse_loss = MSELoss(reduction="none")
 
@@ -101,9 +108,13 @@ def train():
 
     for epoch in range(1, 1000):
         for start_positions, heading_vectors, intensities in tqdm(dataloader):
-            start_positions = start_positions.to(hparams["device"], dtype=dtype)
+            start_positions = start_positions.to(hparams["device"], dtype=dtype) # TODO: test non-blocking
             heading_vectors = heading_vectors.to(hparams["device"], dtype=dtype)
             intensities = intensities.to(hparams["device"], dtype=dtype)
+
+            # start_positions2 = torch.clone(start_positions)
+            # heading_vectors2 = torch.clone(heading_vectors)
+            # intensities2 = torch.clone(intensities)
 
             (
                 coarse_sample_ts,
@@ -151,6 +162,7 @@ def train():
                     "fine_optimizer": fine_optimizer.state_dict(),
                     "total_batches": total_batches,
                     "epoch": start_epoch + epoch,
+                    "run_hash": run.hash,
                 },
                 model_save_path / f"{start_epoch + epoch}.pt",
             )
@@ -185,14 +197,14 @@ def _coarse_step(
     )
 
     return (
-        coarse_sample_ts,
+        coarse_sample_ts.detach(),
         attenuation_coeff_pred.detach(),
-        coarse_sampling_distances,
+        coarse_sampling_distances.detach(),
         loss.detach().cpu(),
     )
 
 
-# @torch.compile(mode="max-autotune", disable=False) # TODO: why does this crash?
+@torch.compile(mode="max-autotune", disable=False)
 def _fine_step(
     start_positions: torch.Tensor,
     heading_vectors: torch.Tensor,
@@ -279,7 +291,7 @@ def _eval_fig(
     tag: str,
 ):
     model.eval()
-    yv = torch.linspace(-1, 1, 512) # TODO: get from metadata
+    yv = torch.linspace(-1, 1, 512)  # TODO: get from metadata
     zv = torch.linspace(-1, 1, 536)
     yv, zv = torch.meshgrid(yv, zv, indexing="ij")
     coords = torch.stack([torch.zeros_like(yv), yv, zv], dim=-1)
