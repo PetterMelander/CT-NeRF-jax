@@ -108,7 +108,7 @@ def get_fine_samples(
     heading_vector: torch.Tensor,
     coarse_sample_ts: torch.Tensor,
     coarse_sample_values: torch.Tensor,
-    coarse_sampling_distances: torch.Tensor,  # TODO: these can be calculated from t's. Gives one extra calculation but less args to pass around
+    coarse_sampling_distances: torch.Tensor,  # TODO: these can be calculated from t's. Gives one extra calculation but fewer args to pass around
     n_samples: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -213,11 +213,59 @@ def _fine_sampling(
         torch.Tensor: shape (B, n_samples). Contains the sampled t's, and nan if there is no sample.
     """
 
-    coarse_sample_values = coarse_sample_values.detach()
-    coarse_sampling_distances = coarse_sampling_distances.detach()
-
     # compute a "cdf" of the intensity found by the coarse model, accounting for sampling distances
     pdf = coarse_sample_values * coarse_sampling_distances
+    pdf = pdf / torch.sum(pdf, dim=1, keepdim=True)
+    cdf = torch.cumsum(pdf, dim=1)
+    cdf[..., -1] = (
+        1 + 1e-5
+    )  # to avoid rounding errors causing index out of bounds if x is close to 1
+
+    # inverse transform sampling
+    # each random x will fall between two sampling distances, lower and upper
+    x = torch.rand(coarse_sample_values.shape[0], num_samples, device=coarse_sample_values.device)
+    inds = torch.searchsorted(cdf, x, right=False)
+    cum_sampling_distances = torch.cumsum(coarse_sampling_distances, dim=1)
+    cum_sampling_distances = torch.cat(
+        [
+            torch.zeros((cum_sampling_distances.shape[0], 1), device=cum_sampling_distances.device),
+            cum_sampling_distances,
+        ],
+        dim=1,
+    )
+    lower = torch.gather(cum_sampling_distances, 1, inds)
+    upper = torch.gather(cum_sampling_distances, 1, inds + 1)
+
+    # uniformly sample between lower and upper
+    t = torch.rand(coarse_sample_values.shape[0], num_samples, device=coarse_sample_values.device)
+    t = lower + t * (upper - lower)
+
+    return t
+
+
+@torch.no_grad()
+def _edge_focused_fine_sampling_(
+    num_samples: int,
+    coarse_sample_values: torch.Tensor,
+    coarse_sampling_distances: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Samples n_samples points along the ray between the two t's in ray_bounds using the stratified
+    sampling defined in the paper.
+
+    Args:
+        num_samples (int): number of samples
+        coarse_sample_values (torch.Tensor): shape (B, n_samples). Contains the output values of the coarse model.
+        coarse_sampling_distances (torch.Tensor): shape (B, n_samples). Contains the sampling distances of the coarse model.
+    Returns:
+        torch.Tensor: shape (B, n_samples). Contains the sampled t's, and nan if there is no sample.
+    """
+
+    zeros = torch.zeros([coarse_sample_values.shape[0], 1], device=coarse_sample_values.device)
+    diff = torch.diff(coarse_sample_values, dim=1, append=zeros)
+
+    # compute a "cdf" of the intensity found by the coarse model, accounting for sampling distances
+    pdf = diff / coarse_sampling_distances
     pdf = pdf / torch.sum(pdf, dim=1, keepdim=True)
     cdf = torch.cumsum(pdf, dim=1)
     cdf[..., -1] = (
@@ -264,10 +312,7 @@ def _get_sampling_distances(
     Returns:
         torch.Tensor: shape (B, n_samples)
     """
-    sample_distances = torch.zeros(t_samples.shape[0], t_samples.shape[1], device=t_samples.device)
-    sample_distances[:, :-1] = t_samples[:, 1:] - t_samples[:, :-1]
 
-    # distance from last sample to far bound
-    sample_distances[:, -1] = 2 - t_samples[:, -1]
-
-    return sample_distances
+    # Append 2's to end of each batch so last sample will have a distance.
+    twos = 2 * torch.ones([t_samples.shape[0], 1], device=t_samples.device)
+    return torch.diff(t_samples, dim=1, append=twos)
