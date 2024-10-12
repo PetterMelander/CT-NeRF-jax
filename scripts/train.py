@@ -28,7 +28,7 @@ def train():
         "n_layers": 12,
         "layer_dim": 256,
         "L": 20,
-        "lr": 0.0001,
+        "lr": 0.00005,
         "batch_size": 4096,
         "num_coarse_samples": 64,
         "num_fine_samples": 128,
@@ -39,9 +39,9 @@ def train():
         "dtype": "float32",
         "use_amp": False,
         "model_save_interval": 1,
-        # "model_load_path": f"{get_model_dir()}/dev-testing/20241011-194445",
-        "model_load_path": None,
-        "resume_epoch": 1,
+        "model_load_path": f"{get_model_dir()}/dev-testing/20241012-165237",
+        # "model_load_path": None,
+        "resume_epoch": 6,
     }
 
     if hparams["dtype"] == "bfloat16":
@@ -88,7 +88,7 @@ def train():
         weights = torch.load(model_file, weights_only=True, map_location=hparams["device"])
         coarse_model.load_state_dict(weights["coarse_model"])
         fine_model.load_state_dict(weights["fine_model"])
-        coarse_optimizer.load_state_dict(weights["coarse_optim"])
+        coarse_optimizer.load_state_dict(weights["coarse_optimizer"])
         fine_optimizer.load_state_dict(weights["fine_optimizer"])
         total_batches = weights["total_batches"]
         start_epoch = weights["epoch"]
@@ -108,13 +108,9 @@ def train():
 
     for epoch in range(1, 1000):
         for start_positions, heading_vectors, intensities in tqdm(dataloader):
-            start_positions = start_positions.to(hparams["device"], dtype=dtype) # TODO: test non-blocking
-            heading_vectors = heading_vectors.to(hparams["device"], dtype=dtype)
-            intensities = intensities.to(hparams["device"], dtype=dtype)
-
-            # start_positions2 = torch.clone(start_positions)
-            # heading_vectors2 = torch.clone(heading_vectors)
-            # intensities2 = torch.clone(intensities)
+            start_positions = start_positions.to(hparams["device"], dtype=dtype, non_blocking=True)
+            heading_vectors = heading_vectors.to(hparams["device"], dtype=dtype, non_blocking=True)
+            intensities = intensities.to(hparams["device"], dtype=dtype, non_blocking=True)
 
             (
                 coarse_sample_ts,
