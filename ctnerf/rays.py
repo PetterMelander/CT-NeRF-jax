@@ -25,7 +25,7 @@ def log_beer_lambert_law(
         torch.Tensor: shape (B,)
     """
 
-    # scale to cm
+    # scale to cm because the CT creation scripts uses attenuation per cm
     distances = distances * slice_size_cm / 2
 
     exp = torch.exp(-torch.sum(attenuation_coeffs * distances, dim=1))
@@ -52,14 +52,14 @@ def get_rays(
     """
 
     # get normalized position before accounting for angle
-    normalized_pos = 2 * pixel_pos / img_shape - 1
+    normalized_pos = 2 * pixel_pos / (img_shape - 1) - 1
 
     # start position is always at x = 1
     x = torch.ones((pixel_pos.shape[0], 1), device=pixel_pos.device)
     normalized_pos = torch.cat((x, normalized_pos), dim=1)
 
     # invert z axis
-    normalized_pos[:, 2] *= -1
+    # normalized_pos[:, 2] *= -1
 
     # rotate to account for angle
     rotation_matrix, heading_vector = _create_z_rotation_matrix(angles)
@@ -108,7 +108,7 @@ def get_fine_samples(
     heading_vector: torch.Tensor,
     coarse_sample_ts: torch.Tensor,
     coarse_sample_values: torch.Tensor,
-    coarse_sampling_distances: torch.Tensor,  # TODO: these can be calculated from t's. Gives one extra calculation but fewer args to pass around
+    coarse_sampling_distances: torch.Tensor,
     n_samples: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """

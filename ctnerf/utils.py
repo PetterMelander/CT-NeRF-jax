@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -24,3 +25,9 @@ def convert_arrays_to_lists(d: dict) -> dict:
         return d.tolist()
     else:
         return d
+
+
+def get_dataset_metadata(dataset_path: Path) -> dict:
+    with open(dataset_path / "meta.json", "r") as f:
+        metadata = json.load(f)
+    return metadata

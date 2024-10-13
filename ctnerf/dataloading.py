@@ -1,13 +1,13 @@
-import json
-import math
 from pathlib import Path
 
 import numpy as np
+import SimpleITK as sitk
 import torch
-from PIL import Image
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 from ctnerf.rays import get_rays
+from ctnerf.utils import get_dataset_metadata
 
 
 class XRayDataset(Dataset):
@@ -23,36 +23,27 @@ class XRayDataset(Dataset):
     ) -> None:
         super().__init__(*args, **kwargs)
 
-        images, angles, self.len = self._read_images(xray_dir)
+        # Read metadata
+        metadata = get_dataset_metadata(xray_dir)
+        xray_size = metadata["size"][1:]
+        num_xrays = len(metadata["file_angle_map"])
+        self.len = np.prod(xray_size) * num_xrays
 
-        # setup positions
-        x = torch.linspace(0, images[0].size[0] - 1, images[0].size[0]) # TODO: extract img size from metadata
-        y = torch.linspace(0, images[0].size[1] - 1, images[0].size[1])
-        x, y = torch.meshgrid(x, y, indexing="ij")
-        positions = torch.stack((x, y), dim=-1).reshape(-1, 2).repeat(len(images), 1)
+        # Get angles, intensities and pixel indices from images
+        angles, intensities, pixel_indices = self._read_images(xray_dir, metadata)
 
-        # setup corresponding intensities
-        index = 0
-        self.intensities = torch.zeros(self.len)
-        for image in images:
-            pixel_count = image.size[0] * image.size[1] # TODO: find constant img size from metadata
-            intensities = torch.tensor(np.array(image, dtype=np.uint16)).T.reshape(-1) # why is this transposed? # TODO: find dtype from metadata
-            self.intensities[index : index + pixel_count] = intensities
-            index += pixel_count
+        # Scale intensities
+        intensities = torch.log(intensities + k) / s
+        self.intensities = torch.nan_to_num(intensities)  # intensity 0 gives -inf after log
 
-        # transform intensities to have values that are more evenly distributed
-        # TODO: find bit depth from metadata
-        self.intensities = self.intensities / (2**16 - 1)
-        self.intensities = torch.log(self.intensities + k) / s
-        self.intensities = torch.nan_to_num(self.intensities)  # intensity 0 gives -inf after log
+        # Get positions and heading vectors in model space
+        size_tensor = torch.tensor(xray_size)
+        self.start_positions, self.heading_vectors = get_rays(pixel_indices, angles, size_tensor)
 
-        image_size = torch.tensor(images[0].size) # TODO: get img size from metatdata
-        self.start_positions, self.heading_vectors = get_rays(positions, angles, image_size)
-
+        # Tensor setup
         self.start_positions = self.start_positions.to(dtype=dtype)
         self.heading_vectors = self.heading_vectors.to(dtype=dtype)
         self.intensities = self.intensities.to(dtype=dtype)
-
         self.start_positions.requires_grad_(False)
         self.heading_vectors.requires_grad_(False)
         self.intensities.requires_grad_(False)
@@ -65,19 +56,34 @@ class XRayDataset(Dataset):
     def __len__(self) -> int:
         return self.len
 
-    def _read_images(self, train_dir: Path) -> tuple[list[Image.Image], torch.Tensor, int]:
-        with open(train_dir / "meta.json", "r") as f:
-            metadata = json.load(f)
-
-        images = []
+    def _read_images(
+        self, train_dir: Path, metadata: dict
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         angles = []
-        total_pixels = 0 # TODO: find constant img size from metadata
-        for file, angle in metadata["file_angle_map"].items():
-            image = Image.open(train_dir / file)
-            pixel_count = image.size[0] * image.size[1]
-            total_pixels += pixel_count
-            images.append(image)
-            angles += [(math.radians(float(angle)))] * pixel_count
-        angles = torch.tensor(angles)
+        intensities = np.ndarray(0, dtype=np.float64)
+        pixel_indices = torch.zeros(size=(0, 2))
 
-        return images, angles, total_pixels
+        for file, angle in tqdm(metadata["file_angle_map"].items(), "Loading dataset"):
+            # Read image
+            xray_image = sitk.ReadImage(train_dir / file)
+            xray_size = xray_image.GetSize()
+
+            # Save angle for each pixel
+            angles += [(np.radians(angle))] * np.prod(xray_size)
+
+            # Save intensity for each pixel
+            xray_intensities = sitk.GetArrayFromImage(xray_image)
+            intensities = np.append(intensities, xray_intensities)
+
+            # Save pixel indices corresponding to intensities and angles
+            x = torch.linspace(0, xray_size[0] - 1, xray_size[0])
+            y = torch.linspace(0, xray_size[1] - 1, xray_size[1])
+            x, y = torch.meshgrid(x, y, indexing="xy")
+            pixel_indices = torch.cat(
+                [pixel_indices, torch.stack((x, y), dim=-1).reshape(-1, 2)], dim=0
+            )
+
+        angles = torch.tensor(angles)
+        intensities = torch.tensor(intensities)
+
+        return angles, intensities, pixel_indices
