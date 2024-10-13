@@ -2,108 +2,123 @@ import json
 import shutil
 from pathlib import Path
 
-import nrrd
 import numpy as np
-import torch
-from monai.transforms.spatial.functional import rotate
-from PIL import Image
+import SimpleITK as sitk
 
 from ctnerf.utils import convert_arrays_to_lists
 
 
-@torch.no_grad()
 def generate_xrays(
-    ct_path: Path, output_dir: Path, angle_interval_size: int, max_angle: int, device: str
+    ct_path: Path, output_dir: Path, angle_interval_size: int, max_angle: int
 ) -> None:
-    
-    # TODO: get metadata in nifti format: https://discourse.slicer.org/t/convert-nrrd-to-nii-gz/16694/3
     metadata = {}
-    metadata["bits"] = 16
-    metadata["dtype"] = "uint16"
 
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
-    img, ct_metadata = _read_nrrd(path=ct_path, device=device)
-    metadata["ct_metadata"] = ct_metadata
+
+    ct = sitk.ReadImage(ct_path)
+    sitk.WriteImage(ct, output_dir / "test.nii.gz")
 
     file_angle_dict = {}
     for angle in range(0, max_angle, angle_interval_size):
-        output_file = f"{angle}.png"
-        xray = _ct_to_xray(
-            img, pixel_spacing=ct_metadata["space directions"][1, 1] / 10, angle=np.radians(angle)
-        )
-        xray = Image.fromarray(
-            (xray * (2 ** metadata["bits"] - 1)).astype(metadata["dtype"]).squeeze(0)
-        )
-        xray.save(output_dir / output_file)
+        output_file = f"{angle}.nii.gz"
+        rotated_ct = _rotate_ct(ct, np.radians(angle))
+        xray = _ct_to_xray(rotated_ct)
+        sitk.WriteImage(xray, output_dir / output_file)
         file_angle_dict[output_file] = angle
+
     metadata["file_angle_map"] = file_angle_dict
+    metadata["ct_meta"] = {key: ct.GetMetaData(key) for key in ct.GetMetaDataKeys()}
+    metadata["direction"] = ct.GetDirection()
+    metadata["spacing"] = ct.GetSpacing()
+    metadata["size"] = ct.GetSize()
+    metadata["origin"] = ct.GetOrigin()
+    metadata["dtype"] = {"type": ct.GetPixelIDValue(), "string": ct.GetPixelIDTypeAsString()}
 
     metadata = convert_arrays_to_lists(metadata)
     with open(output_dir / "meta.json", "w") as f:
         json.dump(metadata, f)
 
 
-def _read_nrrd(path: Path, device: str) -> tuple[torch.Tensor, dict]:
+def _rotate_ct(img: sitk.Image, angle: int) -> sitk.Image:
     """
-    Reads a .nrrd file and returns a torch.Tensor with shape (C, H, W, D).
-    Makes some assumptions about the orientation of the image.
+    Rotate image by {angle} degrees about the z axis. Uses linear interpolation and
+    pads with -1024.
 
     Args:
-        path (Path): path to .nrrd file
-        device (str): device to store the image on
+        img (sitk.Image): Input CT image to be rotated.
+        angle (int): Angle, in degrees, to rotate image counter clockwise.
 
     Returns:
-        torch.Tensor: CT image with shape (C, H, W, D)
+        sitk.Image: Rotated CT image.
     """
-    img, header = nrrd.read(path, index_order="C")
-    img = np.flip(img, axis=0).copy()
-    img = torch.tensor(img, device=device)
-    img = img.unsqueeze(0).permute(0, 1, 3, 2)
-    return img, header
+
+    image_center = img.TransformContinuousIndexToPhysicalPoint(
+        [(sz - 1) / 2 for sz in img.GetSize()]
+    )
+
+    # Create the Euler3DTransform object
+    transform = sitk.Euler3DTransform()
+    transform.SetCenter(image_center)
+    transform.SetRotation(0, 0, angle)
+
+    # Apply the transform to the image
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetReferenceImage(img)
+    resampler.SetInterpolator(sitk.sitkLinear)
+    resampler.SetDefaultPixelValue(-1024)
+    resampler.SetTransform(transform)
+
+    # Get the rotated image
+    return resampler.Execute(img)
 
 
-def _ct_to_xray(
-    img: torch.Tensor,
-    angle: float,
-    pixel_spacing: float,
-) -> torch.Tensor:
+def _ct_to_xray(ct_image: sitk.Image) -> sitk.Image:
     """
     Turns a CT image into an X-ray image by using a discretized version of Beer-Lambert's law
     depth-wise, using CT values as attenuation coefficient.
 
     Args:
-        img (torch.Tensor): CT image with shape (C, H, W, D)
-        angle (float): angle that the X-ray was taken with. 0 degrees is frontal view
-        pixel_spacing (float): pixel spacing in cm
+        img (sitk.Image): SimpleITK Image object of a CT image.
 
     Returns:
-        torch.Tensor: X-ray image with shape (C, H, W)
+        sitk.Image: X-ray image with dtype float64
     """
-    img = _hounsfield_to_attenuation(img)
-    img = rotate(
-        img,
-        angle=(angle, 0, 0),
-        mode="bilinear",
-        padding_mode="zeros",
-        output_shape=img.shape[1:],
-        align_corners=False,
-        dtype=img.dtype,
-        lazy=False,
-        transform_info=False,
-    )
-    img = torch.exp(-img.sum(axis=3) * pixel_spacing)  # Beer-Lambert's law
-    img = img.clamp(0, 1)  # transmittance must be between 0 and 1
-    return img
+
+    # Simulate X-ray image from CT
+    pixel_spacing = ct_image.GetSpacing()[0]
+    img_array = sitk.GetArrayFromImage(ct_image).astype(np.float64)
+    img_array = _hounsfield_to_attenuation(img_array)
+    img_array = np.exp(-img_array.sum(axis=2) * pixel_spacing)  # Beer-Lambert's law along x-axis
+    img_array = img_array.clip(0, 1)  # transmittance must be between 0 and 1
+
+    # Convert to sitk.Image, with appropriate metadata
+    xray_image = sitk.GetImageFromArray(img_array)
+    xray_image = sitk.Cast(xray_image, sitk.sitkFloat64)
+    ct_direction = list(ct_image.GetDirection())
+    xray_image.SetDirection(ct_direction[4:6] + ct_direction[7:])
+    xray_image.SetSpacing(ct_image.GetSpacing()[1:])
+    xray_image.SetOrigin(ct_image.GetOrigin()[1:])
+    return xray_image
 
 
-def _hounsfield_to_attenuation(img: torch.Tensor) -> torch.Tensor:
+def _hounsfield_to_attenuation(img: np.ndarray) -> np.ndarray:
     """
-    Reverses the formula for Hounsfield units to turn the CT image into a map of attenuation coefficients
+    Reverse the formula for Hounsfield units to turn the CT image into a map of attenuation coefficients.
+
+    Args:
+        img (np.ndarray): CT image represented as 3D numpy array.
+
+    Returns:
+        np.ndarray: CT image rescaled to linear attenuation coefficients in mm.
     """
-    mu_air = 0.0002504  # 50 keV, per cm (https://physics.nist.gov/PhysRefData/XrayMassCoef/ComTab/air.html)
-    mu_water = 0.2269  # 50 keV, per cm (https://physics.nist.gov/PhysRefData/XrayMassCoef/ComTab/water.html)
+    mu_air = (
+        0.0002504 / 10
+    )  # 50 keV, per mm (https://physics.nist.gov/PhysRefData/XrayMassCoef/ComTab/air.html)
+    mu_water = (
+        0.2269 / 10
+    )  # 50 keV, per mm (https://physics.nist.gov/PhysRefData/XrayMassCoef/ComTab/water.html)
     img = img * (mu_water - mu_air) / 1000 + mu_water
     img[img < 0] = 0  # remove negative attenuation coefficients caused by padding with -1024
     return img
