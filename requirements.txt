@@ -1,11 +1,6 @@
 torch
-monai
-metaimageio # for reading metaio files
-nibabel # for reading nifti files
-pynrrd # for reading nrrd files
-matplotlib
+simpleITK
 tqdm
 aim
 plotly # for aim figures
 pandas # for plotly express
-simpleITK

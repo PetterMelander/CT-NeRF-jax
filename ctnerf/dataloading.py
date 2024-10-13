@@ -76,11 +76,11 @@ class XRayDataset(Dataset):
             intensities = np.append(intensities, xray_intensities)
 
             # Save pixel indices corresponding to intensities and angles
-            x = torch.linspace(0, xray_size[0] - 1, xray_size[0])
-            y = torch.linspace(0, xray_size[1] - 1, xray_size[1])
-            x, y = torch.meshgrid(x, y, indexing="xy")
+            y = torch.linspace(0, xray_size[0] - 1, xray_size[0])
+            z = torch.linspace(0, xray_size[1] - 1, xray_size[1])
+            y, z = torch.meshgrid(y, z, indexing="xy")
             pixel_indices = torch.cat(
-                [pixel_indices, torch.stack((x, y), dim=-1).reshape(-1, 2)], dim=0
+                [pixel_indices, torch.stack((y, z), dim=-1).reshape(-1, 2)], dim=0
             )
 
         angles = torch.tensor(angles)

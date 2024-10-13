@@ -4,7 +4,7 @@ from ctnerf.xray_creation import generate_xrays
 datapath = get_data_dir()
 
 max_angle = 180
-angle_interval_size = 18
+angle_interval_size = 1
 ct_path = datapath / "ct_images" / "nrrd" / "2 AC_CT_TBody.nrrd"
 device = "cuda:0"
 

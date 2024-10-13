@@ -13,7 +13,7 @@ from tqdm import tqdm
 from ctnerf.dataloading import XRayDataset
 from ctnerf.models import XRayModel
 from ctnerf.rays import get_coarse_samples, get_fine_samples, log_beer_lambert_law
-from ctnerf.utils import get_data_dir, get_model_dir
+from ctnerf.utils import get_data_dir, get_dataset_metadata, get_model_dir
 
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.benchmark = True
@@ -25,30 +25,36 @@ def train():
 
     hparams = {
         "name": "dev-testing",
-        "n_layers": 12,
-        "layer_dim": 256,
-        "L": 20,
-        "lr": 0.00005,
-        "batch_size": 4096,
-        "num_coarse_samples": 64,
-        "num_fine_samples": 128,
-        "device": "cuda:0",
-        "s": 1,
-        "k": 0.1,
-        "slice_size_cm": 0.15234375 * 512,  # TODO: extract automatically from metadata
-        "dtype": "float32",
-        "use_amp": False,
-        "model_save_interval": 1,
-        "model_load_path": f"{get_model_dir()}/dev-testing/20241012-165237",
+        "dataset": "test",
+        "model_save_interval": 5,
+        "model_load_path": f"{get_model_dir()}/dev-testing/20241013-125042",
         # "model_load_path": None,
-        "resume_epoch": 6,
+        "resume_epoch": 1,
+        "device": "cuda:0",
+        "model": {
+            "n_layers": 8,
+            "layer_dim": 256,
+            "L": 20,
+        },
+        "training": {
+            "lr": 0.00005,
+            "batch_size": 4096,
+            "num_coarse_samples": 64,
+            "num_fine_samples": 128,
+            "dtype": "float32",
+            "use_amp": False,
+        },
+        "scaling": {
+            "s": 1,
+            "k": 0.1,
+        },
     }
 
-    if hparams["dtype"] == "bfloat16":
+    if hparams["training"]["dtype"] == "bfloat16":
         dtype = torch.bfloat16
-    elif hparams["dtype"] == "float16":
+    elif hparams["training"]["dtype"] == "float16":
         dtype = torch.float16
-    elif hparams["dtype"] == "float32":
+    elif hparams["training"]["dtype"] == "float32":
         dtype = torch.float32
     else:
         raise ValueError(f"Unknown dtype: {hparams['dtype']}")
@@ -56,32 +62,32 @@ def train():
     model_save_path = get_model_dir() / f"{hparams['name']}" / f"{timestamp}"
     model_save_path.mkdir(parents=True, exist_ok=True)
 
-    datapath = get_data_dir() / "xrays" / "2 AC_CT_TBody"
-    dataset = XRayDataset(datapath, s=hparams["s"], k=hparams["k"], dtype=dtype)
+    xray_dir = get_data_dir() / "xrays" / hparams["dataset"]
+    dataset = XRayDataset(xray_dir, dtype=dtype, **hparams["scaling"])
     dataloader = DataLoader(
         dataset,
-        batch_size=hparams["batch_size"],
+        batch_size=hparams["training"]["batch_size"],
         shuffle=True,
         num_workers=8,
         pin_memory=True,
         pin_memory_device=hparams["device"],
     )
 
+    metadata = get_dataset_metadata(xray_dir)
+    hparams["scaling"]["slice_size_cm"] = metadata["spacing"][1] * metadata["size"][1] / 10
+    hparams["ct_size"] = metadata["size"]
+
     coarse_model = XRayModel(
-        n_layers=hparams["n_layers"],
-        layer_dim=hparams["layer_dim"],
-        L=hparams["L"],
+        **hparams["model"],
     )
     fine_model = XRayModel(
-        n_layers=hparams["n_layers"],
-        layer_dim=hparams["layer_dim"],
-        L=hparams["L"],
+        **hparams["model"],
     )
     coarse_model.to(hparams["device"])
     fine_model.to(hparams["device"])
 
-    coarse_optimizer = Adam(coarse_model.parameters(), lr=hparams["lr"], fused=True)
-    fine_optimizer = Adam(fine_model.parameters(), lr=hparams["lr"], fused=True)
+    coarse_optimizer = Adam(coarse_model.parameters(), fused=True, lr=hparams["training"]["lr"])
+    fine_optimizer = Adam(fine_model.parameters(), fused=True, lr=hparams["training"]["lr"])
 
     if hparams["model_load_path"] is not None:
         model_file = Path(hparams["model_load_path"]) / f"{hparams['resume_epoch']}.pt"
@@ -146,8 +152,17 @@ def train():
             run.track(coarse_loss.item(), name="coarse_loss", step=total_batches)
 
         # generate cross section
-        _eval_fig(fine_model, hparams["device"], start_epoch + epoch, run, "fine")
-        _eval_fig(coarse_model, hparams["device"], start_epoch + epoch, run, "coarse")
+        _eval_fig(
+            fine_model, hparams["ct_size"][1:], hparams["device"], start_epoch + epoch, run, "fine"
+        )
+        _eval_fig(
+            coarse_model,
+            hparams["ct_size"][1:],
+            hparams["device"],
+            start_epoch + epoch,
+            run,
+            "coarse",
+        )
 
         if epoch % hparams["model_save_interval"] == 0:
             torch.save(
@@ -159,6 +174,7 @@ def train():
                     "total_batches": total_batches,
                     "epoch": start_epoch + epoch,
                     "run_hash": run.hash,
+                    "model_hparams": hparams["model"],
                 },
                 model_save_path / f"{start_epoch + epoch}.pt",
             )
@@ -178,7 +194,7 @@ def _coarse_step(
     coarse_sample_ts, coarse_samples, coarse_sampling_distances = get_coarse_samples(
         start_positions,
         heading_vectors,
-        hparams["num_coarse_samples"],
+        hparams["training"]["num_coarse_samples"],
     )
 
     loss, attenuation_coeff_pred = _forward_backward(
@@ -220,7 +236,7 @@ def _fine_step(
         coarse_sample_ts,
         attenuation_coeff_pred,
         coarse_sampling_distances,
-        hparams["num_fine_samples"],
+        hparams["training"]["num_fine_samples"],
     )
 
     loss, _ = _forward_backward(
@@ -252,20 +268,18 @@ def _forward_backward(
     # samples = samples.to(intensities.device, dtype=intensities.dtype)
     # sampling_distances = sampling_distances.to(intensities.device, dtype=intensities.dtype)
 
-    with autocast(device_type="cuda", enabled=hparams["use_amp"]):
+    with autocast(device_type="cuda", enabled=hparams["training"]["use_amp"]):
         attenuation_coeff_pred = model(samples)
-        attenuation_coeff_pred = attenuation_coeff_pred.reshape(hparams["batch_size"], -1)
+        attenuation_coeff_pred = attenuation_coeff_pred.reshape(
+            hparams["training"]["batch_size"], -1
+        )
         intensity_pred = log_beer_lambert_law(
-            attenuation_coeff_pred,
-            sampling_distances,
-            hparams["s"],
-            hparams["k"],
-            hparams["slice_size_cm"],
+            attenuation_coeff_pred, sampling_distances, **hparams["scaling"]
         )
         loss = loss_fn(intensity_pred, intensities)
         loss = torch.sum(loss)
 
-    if hparams["use_amp"]:
+    if hparams["training"]["use_amp"]:
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
@@ -281,21 +295,23 @@ def _forward_backward(
 @torch.no_grad()
 def _eval_fig(
     model: torch.nn.Module,
+    size: tuple[int, int],
     device: torch.device,
     epoch: int,
     run: Run,
     tag: str,
 ):
     model.eval()
-    yv = torch.linspace(-1, 1, 512)  # TODO: get from metadata
-    zv = torch.linspace(-1, 1, 536)
-    yv, zv = torch.meshgrid(yv, zv, indexing="ij")
+
+    yv = torch.linspace(-1, 1, size[0])
+    zv = torch.linspace(-1, 1, size[1])
+    yv, zv = torch.meshgrid(yv, zv, indexing="xy")
     coords = torch.stack([torch.zeros_like(yv), yv, zv], dim=-1)
     coords = coords.reshape(-1, 3)
     coords = coords.to(device)
 
     output = model(coords)
-    output = output.reshape(512, 536).T
+    output = output.reshape(size[1], size[0])
 
     fig = px.imshow(output.cpu().numpy(), color_continuous_scale="gray")
     run.track(Figure(fig), name="cross section", step=epoch, context={"model": tag})

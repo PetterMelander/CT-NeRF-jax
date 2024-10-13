@@ -58,9 +58,6 @@ def get_rays(
     x = torch.ones((pixel_pos.shape[0], 1), device=pixel_pos.device)
     normalized_pos = torch.cat((x, normalized_pos), dim=1)
 
-    # invert z axis
-    # normalized_pos[:, 2] *= -1
-
     # rotate to account for angle
     rotation_matrix, heading_vector = _create_z_rotation_matrix(angles)
     start_pos = torch.bmm(rotation_matrix, normalized_pos.unsqueeze(2)).squeeze(2)

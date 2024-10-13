@@ -16,7 +16,6 @@ def generate_xrays(
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
-
     ct = sitk.ReadImage(ct_path)
     sitk.WriteImage(ct, output_dir / "test.nii.gz")
 
@@ -34,21 +33,25 @@ def generate_xrays(
     metadata["spacing"] = ct.GetSpacing()
     metadata["size"] = ct.GetSize()
     metadata["origin"] = ct.GetOrigin()
-    metadata["dtype"] = {"type": ct.GetPixelIDValue(), "string": ct.GetPixelIDTypeAsString()}
+    metadata["dtype"] = {
+        "id": ct.GetPixelID(),
+        "value": ct.GetPixelIDValue(),
+        "string": ct.GetPixelIDTypeAsString(),
+    }
 
     metadata = convert_arrays_to_lists(metadata)
     with open(output_dir / "meta.json", "w") as f:
         json.dump(metadata, f)
 
 
-def _rotate_ct(img: sitk.Image, angle: int) -> sitk.Image:
+def _rotate_ct(img: sitk.Image, angle: float) -> sitk.Image:
     """
     Rotate image by {angle} degrees about the z axis. Uses linear interpolation and
     pads with -1024.
 
     Args:
         img (sitk.Image): Input CT image to be rotated.
-        angle (int): Angle, in degrees, to rotate image counter clockwise.
+        angle (float): Angle, in radians, to rotate image counter clockwise.
 
     Returns:
         sitk.Image: Rotated CT image.
