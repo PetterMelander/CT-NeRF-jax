@@ -29,7 +29,7 @@ def generate_ct(
     y = torch.linspace(-1, 1, img_size[1])
     z = torch.linspace(-1, 1, img_size[2])
 
-    coords = torch.stack(torch.meshgrid((x, y, z), indexing="xy"), dim=-1) # TODO: z, y, x?
+    coords = torch.stack(torch.meshgrid((x, y, z), indexing="xy"), dim=-1)
     coords = coords.view(-1, 3)
 
     coords = coords.to(device)

@@ -20,7 +20,7 @@ class XRayModel(torch.nn.Module):
         pos_enc = self._positional_encoding(coords, self.L)
         x = torch.clone(pos_enc)
         for i, layer in enumerate(self.layers):
-            if i == len(self.layers) / 2 + 1:
+            if i == len(self.layers) / 2 + 1: # TODO: if-statement
                 x = torch.cat((pos_enc, x), dim=1)
             x = torch.nn.functional.relu(layer(x))
 

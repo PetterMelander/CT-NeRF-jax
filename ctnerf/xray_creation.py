@@ -17,7 +17,6 @@ def generate_xrays(
         shutil.rmtree(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
     ct = sitk.ReadImage(ct_path)
-    sitk.WriteImage(ct, output_dir / "test.nii.gz")
 
     file_angle_dict = {}
     for angle in range(0, max_angle, angle_interval_size):
@@ -103,6 +102,10 @@ def _ct_to_xray(ct_image: sitk.Image) -> sitk.Image:
     xray_image.SetDirection(ct_direction[4:6] + ct_direction[7:])
     xray_image.SetSpacing(ct_image.GetSpacing()[1:])
     xray_image.SetOrigin(ct_image.GetOrigin()[1:])
+
+    for key in ct_image.GetMetaDataKeys():
+        xray_image.SetMetaData(key, ct_image.GetMetaData(key))
+
     return xray_image
 
 
