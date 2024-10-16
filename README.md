@@ -18,19 +18,13 @@ The NeRF model and ray tracing was implemented in PyTorch. To make the project m
 
 A ray in three dimensions can be parameterized by a single scalar $t$ as $\mathbf{p}+t\cdot\mathbf{v}$, with $\mathbf{p}$ being a point on the ray and $\mathbf{v}$ being the heading vector of the ray. For an X-ray image of size $(w_{im}, h_{im})$ taken from an angle $0$, that is head on, the starting position $\mathbf{p}(y, z, 0)$ and heading vector $\mathbf{v}(0)$ of the ray associated with pixel $(y,z)$ are 
 
-$$\mathbf{p}(y, z, 0)=\begin{bmatrix}1 & \frac{2y}{w_{im}}-1 & \frac{2z}{h_{im}}-1\end{bmatrix}^T \\ 
-
-\mathbf{v}(0)=\begin{bmatrix}-1 & 0 & 0 \end{bmatrix}^T$$ 
+$$\mathbf{p}(y, z, 0)=\begin{bmatrix}1 & \frac{2y}{w_{im}}-1 & \frac{2z}{h_{im}}-1\end{bmatrix}^T \\ \mathbf{v}(0)=\begin{bmatrix}-1 & 0 & 0 \end{bmatrix}^T$$ 
 
 That is, the ray starts at $x=1$ and heads in the negative x direction. This works because unlike in a normal camera, in an X-ray camera the light rays creating the image are more or less parallel and orthogonal to the image plane. Since the start position is at $x=1$, $\mathbf{v}(0)$ is a unit vector, and the model space is a cube with a side of $2$, it holds that $t \in [0,2]$. 
 
 For pixel $(y,z)$ in an X-ray image taken from angle $\theta$, the starting point $\mathbf{p}(y,z,\theta)$ and heading vector $\mathbf{v}(\theta)$ can be calculated by rotating $\mathbf{p}(y, z, 0)$ and $\mathbf{v}(0)$ by $\theta$ around the z-axis: 
 
-$$\mathbf{R}_z(\theta)=\begin{bmatrix} \cos{\theta} & -\sin{\theta} & 0 \\ \sin{\theta} & \cos{\theta} & 0 \\ 0 & 0 & 1\end{bmatrix} \\ 
-
-\mathbf{p}(y, z, \theta)=\mathbf{R}_z(\theta)\mathbf{p}(y,z,0)\\ 
-
-\mathbf{v}(\theta)=\mathbf{R}_z(\theta)\mathbf{v}(0)=\begin{bmatrix} \cos{\theta} & -\sin{\theta} & 0\end{bmatrix}^T$$
+$$\mathbf{R}_z(\theta)=\begin{bmatrix} \cos{\theta} & -\sin{\theta} & 0 \\ \sin{\theta} & \cos{\theta} & 0 \\ 0 & 0 & 1\end{bmatrix} \\ \mathbf{p}(y, z, \theta)=\mathbf{R}_z(\theta)\mathbf{p}(y,z,0)\\ \mathbf{v}(\theta)=\mathbf{R}_z(\theta)\mathbf{v}(0)=\begin{bmatrix} \cos{\theta} & -\sin{\theta} & 0\end{bmatrix}^T$$
 
 Thus, the ray associated with pixel $(y,z)$ of an X-ray image taken from angle $\theta$ can be parameterized as $\mathbf{p}(y,z,\theta)+t\cdot\mathbf{v}(\theta)$ with $t\in[0,2]$. Sampling points along the ray is then as simple as sampling different values of $t$.
 
