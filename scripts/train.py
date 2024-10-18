@@ -27,9 +27,9 @@ def train():
         "name": "coarse-only",
         "dataset": "test",
         "model_save_interval": 1,
-        "model_load_path": f"{get_model_dir()}/coarse-only/20241016-204939",
+        "model_load_path": f"{get_model_dir()}/coarse-only/20241017-174113",
         # "model_load_path": None,
-        "resume_epoch": 56,
+        "resume_epoch": 71,
         "device": "cuda:0",
         "model": {
             "n_layers": 12,
