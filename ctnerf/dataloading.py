@@ -21,11 +21,27 @@ class XRayDataset(Dataset):
         *args,
         **kwargs,
     ) -> None:
+        """
+        Initializes the XRayDataset by loading X-ray images and processing them to obtain
+        angles, intensities, and pixel indices. Additionally, computes starting positions
+        and heading vectors for ray tracing.
+
+        Args:
+            xray_dir (Path): Directory containing X-ray image files and metadata.
+            s (float, optional): Scaling factor for intensity values. Defaults to 1.
+            k (float, optional): Offset added to intensity values before applying log. Defaults to 0.
+            dtype (torch.dtype, optional): Data type for the tensors. Defaults to torch.float32.
+            *args: Additional positional arguments passed to the base class.
+            **kwargs: Additional keyword arguments passed to the base class.
+
+        Returns:
+            None
+        """
         super().__init__(*args, **kwargs)
 
         # Read metadata
         metadata = get_dataset_metadata(xray_dir)
-        xray_size = metadata["size"][1:]
+        xray_size = metadata["size"]
         num_xrays = len(metadata["file_angle_map"])
         self.len = np.prod(xray_size) * num_xrays
 
@@ -59,6 +75,16 @@ class XRayDataset(Dataset):
     def _read_images(
         self, train_dir: Path, metadata: dict
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Reads xray images and returns angles, intensities and pixel indices.
+
+        Args:
+            train_dir (Path): The directory containing the xray images.
+            metadata (dict): The metadata from the dataset.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]: angles, intensities and pixel indices.
+        """
         angles = []
         intensities = np.ndarray(0, dtype=np.float64)
         pixel_indices = torch.zeros(size=(0, 2))

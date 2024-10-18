@@ -24,22 +24,22 @@ def train():
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
     hparams = {
-        "name": "dev-testing",
+        "name": "coarse-only",
         "dataset": "test",
-        "model_save_interval": 5,
-        "model_load_path": f"{get_model_dir()}/dev-testing/20241013-125042",
+        "model_save_interval": 1,
+        "model_load_path": f"{get_model_dir()}/coarse-only/20241016-204939",
         # "model_load_path": None,
-        "resume_epoch": 1,
+        "resume_epoch": 56,
         "device": "cuda:0",
         "model": {
-            "n_layers": 8,
+            "n_layers": 12,
             "layer_dim": 256,
             "L": 20,
         },
         "training": {
-            "lr": 0.00005,
+            "lr": 0.0001,
             "batch_size": 4096,
-            "num_coarse_samples": 64,
+            "num_coarse_samples": 256,
             "num_fine_samples": 128,
             "dtype": "float32",
             "use_amp": False,
@@ -74,28 +74,28 @@ def train():
     )
 
     metadata = get_dataset_metadata(xray_dir)
-    hparams["scaling"]["slice_size_cm"] = metadata["spacing"][1] * metadata["size"][1] / 10
-    hparams["ct_size"] = metadata["size"]
+    hparams["scaling"]["slice_size_cm"] = metadata["spacing"][0] * metadata["size"][0] / 10
+    hparams["ct_size"] = [metadata["size"][0]] + metadata["size"]
 
     coarse_model = XRayModel(
         **hparams["model"],
     )
-    fine_model = XRayModel(
-        **hparams["model"],
-    )
+    # fine_model = XRayModel(
+    #     **hparams["model"],
+    # )
     coarse_model.to(hparams["device"])
-    fine_model.to(hparams["device"])
+    # fine_model.to(hparams["device"])
 
     coarse_optimizer = Adam(coarse_model.parameters(), fused=True, lr=hparams["training"]["lr"])
-    fine_optimizer = Adam(fine_model.parameters(), fused=True, lr=hparams["training"]["lr"])
+    # fine_optimizer = Adam(fine_model.parameters(), fused=True, lr=hparams["training"]["lr"])
 
     if hparams["model_load_path"] is not None:
         model_file = Path(hparams["model_load_path"]) / f"{hparams['resume_epoch']}.pt"
         weights = torch.load(model_file, weights_only=True, map_location=hparams["device"])
         coarse_model.load_state_dict(weights["coarse_model"])
-        fine_model.load_state_dict(weights["fine_model"])
+        # fine_model.load_state_dict(weights["fine_model"])
         coarse_optimizer.load_state_dict(weights["coarse_optimizer"])
-        fine_optimizer.load_state_dict(weights["fine_optimizer"])
+        # fine_optimizer.load_state_dict(weights["fine_optimizer"])
         total_batches = weights["total_batches"]
         start_epoch = weights["epoch"]
         run_hash = weights["run_hash"]
@@ -110,7 +110,7 @@ def train():
     mse_loss = MSELoss(reduction="none")
 
     scaler_coarse = GradScaler()
-    scaler_fine = GradScaler()
+    # scaler_fine = GradScaler()
 
     for epoch in range(1, 1000):
         for start_positions, heading_vectors, intensities in tqdm(dataloader):
@@ -134,27 +134,27 @@ def train():
                 hparams,
             )
 
-            loss = _fine_step(
-                start_positions,
-                heading_vectors,
-                intensities,
-                fine_model,
-                fine_optimizer,
-                scaler_fine,
-                mse_loss,
-                coarse_sample_ts,
-                coarse_attenuation_coeff_pred,
-                coarse_sampling_distances,
-                hparams,
-            )
+            # loss = _fine_step(
+            #     start_positions,
+            #     heading_vectors,
+            #     intensities,
+            #     fine_model,
+            #     fine_optimizer,
+            #     scaler_fine,
+            #     mse_loss,
+            #     coarse_sample_ts,
+            #     coarse_attenuation_coeff_pred,
+            #     coarse_sampling_distances,
+            #     hparams,
+            # )
             total_batches += 1
-            run.track(loss.item(), name="loss", step=total_batches)
-            run.track(coarse_loss.item(), name="coarse_loss", step=total_batches)
+            # run.track(loss.cpu().item(), name="loss", step=total_batches)
+            run.track(coarse_loss.cpu().item(), name="coarse_loss", step=total_batches)
 
         # generate cross section
-        _eval_fig(
-            fine_model, hparams["ct_size"][1:], hparams["device"], start_epoch + epoch, run, "fine"
-        )
+        # _eval_fig(
+        #     fine_model, hparams["ct_size"][1:], hparams["device"], start_epoch + epoch, run, "fine"
+        # )
         _eval_fig(
             coarse_model,
             hparams["ct_size"][1:],
@@ -168,9 +168,9 @@ def train():
             torch.save(
                 {
                     "coarse_model": coarse_model.state_dict(),
-                    "fine_model": fine_model.state_dict(),
+                    # "fine_model": fine_model.state_dict(),
                     "coarse_optimizer": coarse_optimizer.state_dict(),
-                    "fine_optimizer": fine_optimizer.state_dict(),
+                    # "fine_optimizer": fine_optimizer.state_dict(),
                     "total_batches": total_batches,
                     "epoch": start_epoch + epoch,
                     "run_hash": run.hash,
@@ -212,7 +212,7 @@ def _coarse_step(
         coarse_sample_ts.detach(),
         attenuation_coeff_pred.detach(),
         coarse_sampling_distances.detach(),
-        loss.detach().cpu(),
+        loss.detach(),
     )
 
 
@@ -250,7 +250,7 @@ def _fine_step(
         hparams,
     )
 
-    return loss.detach().cpu()
+    return loss.detach()
 
 
 def _forward_backward(

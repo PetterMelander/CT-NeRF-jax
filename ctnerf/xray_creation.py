@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import SimpleITK as sitk
+from tqdm import tqdm
 
 from ctnerf.utils import convert_arrays_to_lists
 
@@ -11,6 +12,18 @@ from ctnerf.utils import convert_arrays_to_lists
 def generate_xrays(
     ct_path: Path, output_dir: Path, angle_interval_size: int, max_angle: int
 ) -> None:
+    """
+    Generates a set of X-ray images from a given CT image by rotating it and applying Beer-Lambert law.
+
+    Args:
+        ct_path (Path): The path to the CT image to be used for X-ray generation.
+        output_dir (Path): The directory where generated X-ray images will be saved.
+        angle_interval_size (int): The angle interval in degrees between each X-ray image.
+        max_angle (int): The maximum angle in degrees for X-ray generation.
+
+    Returns:
+        None
+    """
     metadata = {}
 
     if output_dir.exists():
@@ -19,7 +32,7 @@ def generate_xrays(
     ct = sitk.ReadImage(ct_path)
 
     file_angle_dict = {}
-    for angle in range(0, max_angle, angle_interval_size):
+    for angle in tqdm(range(0, max_angle, angle_interval_size), "Generating X-rays"):
         output_file = f"{angle}.nii.gz"
         rotated_ct = _rotate_ct(ct, np.radians(angle))
         xray = _ct_to_xray(rotated_ct)
@@ -27,11 +40,11 @@ def generate_xrays(
         file_angle_dict[output_file] = angle
 
     metadata["file_angle_map"] = file_angle_dict
-    metadata["ct_meta"] = {key: ct.GetMetaData(key) for key in ct.GetMetaDataKeys()}
-    metadata["direction"] = ct.GetDirection()
-    metadata["spacing"] = ct.GetSpacing()
-    metadata["size"] = ct.GetSize()
-    metadata["origin"] = ct.GetOrigin()
+    metadata["extra_metadata"] = {key: ct.GetMetaData(key) for key in ct.GetMetaDataKeys()}
+    metadata["spacing"] = ct.GetSpacing()[1:]
+    metadata["size"] = ct.GetSize()[1:]
+    metadata["origin"] = ct.GetOrigin()[1:]
+    metadata["direction"] = ct.GetDirection()[4:6] + ct.GetDirection()[7:]
     metadata["dtype"] = {
         "id": ct.GetPixelID(),
         "value": ct.GetPixelIDValue(),
