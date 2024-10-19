@@ -51,7 +51,7 @@ def generate_ct(
         origin = [0, 0, 0]
 
     if direction is None:
-        direction = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        direction = [0, -1, 0, -1, 0, 0, 0, 0, 1]
 
     if img_size is None and spacing is None:
         raise ValueError("Either img_size or spacing must be specified.")

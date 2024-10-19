@@ -2,6 +2,7 @@ import datetime
 from pathlib import Path
 
 import plotly.express as px
+import SimpleITK as sitk
 import torch
 from aim import Figure, Run
 from torch import GradScaler, autocast
@@ -18,6 +19,7 @@ from ctnerf.utils import get_data_dir, get_dataset_metadata, get_model_dir
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.allow_tf32 = True
+torch.backends.cuda.preferred_blas_library('cublaslt')
 
 
 def train():
@@ -26,23 +28,25 @@ def train():
     hparams = {
         "name": "coarse-only",
         "dataset": "test",
+        "source_ct_image_path": str(get_data_dir() / "ct_images" / "nrrd" / "2 AC_CT_TBody.nrrd"),
+        # "source_ct_image_path": None,
         "model_save_interval": 1,
-        "model_load_path": f"{get_model_dir()}/coarse-only/20241017-174113",
-        # "model_load_path": None,
-        "resume_epoch": 71,
+        # "model_load_path": f"{get_model_dir()}/coarse-only/20241017-174113",
+        "model_load_path": None,
+        "resume_epoch": 1,
         "device": "cuda:0",
         "model": {
-            "n_layers": 12,
+            "n_layers": 8,
             "layer_dim": 256,
             "L": 20,
         },
         "training": {
             "lr": 0.0001,
             "batch_size": 4096,
-            "num_coarse_samples": 256,
+            "num_coarse_samples": 192,
             "num_fine_samples": 128,
             "dtype": "float32",
-            "use_amp": False,
+            "use_amp": True,
         },
         "scaling": {
             "s": 1,
@@ -91,14 +95,14 @@ def train():
 
     if hparams["model_load_path"] is not None:
         model_file = Path(hparams["model_load_path"]) / f"{hparams['resume_epoch']}.pt"
-        weights = torch.load(model_file, weights_only=True, map_location=hparams["device"])
-        coarse_model.load_state_dict(weights["coarse_model"])
+        checkpoint = torch.load(model_file, weights_only=True, map_location=hparams["device"])
+        coarse_model.load_state_dict(checkpoint["coarse_model"])
         # fine_model.load_state_dict(weights["fine_model"])
-        coarse_optimizer.load_state_dict(weights["coarse_optimizer"])
+        coarse_optimizer.load_state_dict(checkpoint["coarse_optimizer"])
         # fine_optimizer.load_state_dict(weights["fine_optimizer"])
-        total_batches = weights["total_batches"]
-        start_epoch = weights["epoch"]
-        run_hash = weights["run_hash"]
+        total_batches = checkpoint["total_batches"]
+        start_epoch = checkpoint["epoch"]
+        run_hash = checkpoint["run_hash"]
     else:
         total_batches = 0
         start_epoch = 0
@@ -148,16 +152,14 @@ def train():
             #     hparams,
             # )
             total_batches += 1
-            # run.track(loss.cpu().item(), name="loss", step=total_batches)
-            run.track(coarse_loss.cpu().item(), name="coarse_loss", step=total_batches)
+            # if total_batches % 25 == 0:
+                # run.track(loss.cpu().item(), name="loss", step=total_batches)
+            run.track(coarse_loss.item(), name="coarse_loss", step=total_batches)
 
-        # generate cross section
-        # _eval_fig(
-        #     fine_model, hparams["ct_size"][1:], hparams["device"], start_epoch + epoch, run, "fine"
-        # )
-        _eval_fig(
+        _eval(
             coarse_model,
-            hparams["ct_size"][1:],
+            hparams["ct_size"],
+            hparams["source_ct_image_path"],
             hparams["device"],
             start_epoch + epoch,
             run,
@@ -171,7 +173,7 @@ def train():
                     # "fine_model": fine_model.state_dict(),
                     "coarse_optimizer": coarse_optimizer.state_dict(),
                     # "fine_optimizer": fine_optimizer.state_dict(),
-                    "total_batches": total_batches,
+                    "total_batches": (start_epoch + epoch) * len(dataloader),
                     "epoch": start_epoch + epoch,
                     "run_hash": run.hash,
                     "model_hparams": hparams["model"],
@@ -212,7 +214,7 @@ def _coarse_step(
         coarse_sample_ts.detach(),
         attenuation_coeff_pred.detach(),
         coarse_sampling_distances.detach(),
-        loss.detach(),
+        loss.detach().cpu(),
     )
 
 
@@ -250,7 +252,7 @@ def _fine_step(
         hparams,
     )
 
-    return loss.detach()
+    return loss.cpu().detach()
 
 
 def _forward_backward(
@@ -264,9 +266,6 @@ def _forward_backward(
     hparams: dict,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     model.train()
-
-    # samples = samples.to(intensities.device, dtype=intensities.dtype)
-    # sampling_distances = sampling_distances.to(intensities.device, dtype=intensities.dtype)
 
     with autocast(device_type="cuda", enabled=hparams["training"]["use_amp"]):
         attenuation_coeff_pred = model(samples)
@@ -293,9 +292,10 @@ def _forward_backward(
 
 
 @torch.no_grad()
-def _eval_fig(
+def _eval(
     model: torch.nn.Module,
-    size: tuple[int, int],
+    img_size: tuple[int, int, int],
+    source_ct_path: str | None,
     device: torch.device,
     epoch: int,
     run: Run,
@@ -303,18 +303,61 @@ def _eval_fig(
 ):
     model.eval()
 
-    yv = torch.linspace(-1, 1, size[0])
-    zv = torch.linspace(-1, 1, size[1])
+    if source_ct_path is not None:
+        x = torch.linspace(-1, 1, img_size[0])
+        y = torch.linspace(-1, 1, img_size[1])
+        z = torch.linspace(-1, 1, img_size[2])
+
+        coords = torch.stack(torch.meshgrid((x, y, z), indexing="xy"), dim=-1)
+        coords = coords.view(-1, 3)
+
+        # To avoid oom, inference is done in batches and result stored on cpu
+        output = torch.empty(coords.shape[0], device="cpu")
+        coords = coords.split(4096 * 16, dim=0)
+        index = 0
+        for chunk in tqdm(coords, desc="Generating", total=len(coords)):
+            chunk = chunk.to(device)
+            output_chunk = model(chunk)
+            output_chunk = output_chunk.view(-1)
+            output[index : index + output_chunk.shape[0]] = output_chunk.cpu()
+            index += output_chunk.shape[0]
+
+        # Convert to hounsfield
+        mu_air = 0.0002504
+        mu_water = 0.2269
+        output = 1000 * (output - mu_water) / (mu_water - mu_air)
+
+        output = output.reshape(img_size[0], img_size[1], img_size[2])
+        output = torch.permute(output, (2, 1, 0))
+        output = output.clamp_min(-1024)
+
+        source_ct_image = sitk.ReadImage(str(source_ct_path))
+        source_ct_image.SetDirection([0.0, -1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+        source_ct_image = sitk.GetArrayFromImage(source_ct_image)
+        source_ct_image = torch.from_numpy(source_ct_image).float()
+
+        mae = torch.mean(torch.abs(output - source_ct_image)).detach().cpu().numpy()
+        run.track(mae, name="mae", step=epoch, context={"model": tag})
+
+        del output
+        del source_ct_image
+        del coords
+
+    yv = torch.linspace(-1, 1, img_size[1])
+    zv = torch.linspace(-1, 1, img_size[2])
     yv, zv = torch.meshgrid(yv, zv, indexing="xy")
     coords = torch.stack([torch.zeros_like(yv), yv, zv], dim=-1)
     coords = coords.reshape(-1, 3)
     coords = coords.to(device)
 
     output = model(coords)
-    output = output.reshape(size[1], size[0])
+    output = output.reshape(img_size[2], img_size[1])
 
     fig = px.imshow(output.cpu().numpy(), color_continuous_scale="gray")
     run.track(Figure(fig), name="cross section", step=epoch, context={"model": tag})
+
+    del output
+    del coords
 
     model.train()
 

@@ -11,8 +11,8 @@ def main():
     img_size = [512, 512, 536]
     spacing = [1.5234375, 1.5234375, 3.0]
     origin = [-389.23828125, -538.2382812499998, -1437.9999999999995]
-    direction = [1.0, 0.0, 0.0,
-                 0.0, 1.0, 0.0,
+    direction = [0.0, -1.0, 0.0,
+                 -1.0, 1.0, 0.0,
                  0.0, 0.0, 1.0]
     dataset_metadata = get_dataset_metadata(get_data_dir() / "xrays" / "test")
     chunk_size = 4096 * 64

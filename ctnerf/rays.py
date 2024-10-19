@@ -25,7 +25,7 @@ def log_beer_lambert_law(
         torch.Tensor: shape (B,). Transmittance
     """
 
-    # scale to cm because the CT creation scripts uses attenuation per cm
+    # scale to mm because the CT creation scripts uses attenuation per cm
     distances = distances * slice_size_cm / 2
 
     exp = torch.exp(-torch.sum(attenuation_coeffs * distances, dim=1))
