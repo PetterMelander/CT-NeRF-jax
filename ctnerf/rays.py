@@ -25,7 +25,7 @@ def log_beer_lambert_law(
         torch.Tensor: shape (B,). Transmittance
     """
 
-    # scale to mm because the CT creation scripts uses attenuation per cm
+    # scale to cm because the CT creation scripts uses attenuation per cm
     distances = distances * slice_size_cm / 2
 
     exp = torch.exp(-torch.sum(attenuation_coeffs * distances, dim=1))
@@ -63,14 +63,46 @@ def get_rays(
     # rotate to account for angle
     rotation_matrix, heading_vector = _create_z_rotation_matrix(angles)
     start_pos = torch.bmm(rotation_matrix, normalized_pos.unsqueeze(2)).squeeze(2)
+    ray_bounds = _get_ray_bounds(start_pos, heading_vector)
 
-    return start_pos, heading_vector
+    return start_pos, heading_vector, ray_bounds
+
+
+@torch.no_grad()
+def _get_ray_bounds(start_pos: torch.Tensor, heading_vector: torch.Tensor) -> torch.Tensor:
+    """
+    Given a start position (a, b, c) and a direction vector (v_x, v_y, 0), a ray can be parameterized as
+    (a + t*v_x, b + t*v_y, c). This function returns the t's that correspond to the ray passing through
+    the cylinder x^2 + y^2 = 1, which defines the bounds of the image. Which t corresponds to which
+    bound is irrelevant since they will only be used sample points between the two t's.
+    Args:
+        start_pos (torch.Tensor): shape (B, 3)
+        heading_vector (torch.Tensor): shape (B, 3)
+    Returns:
+        torch.Tensor: A tensor of shape (B, 2), containing the two t's
+    """
+    a = start_pos[:, 0]
+    b = start_pos[:, 1]
+    v_x = heading_vector[:, 0]
+    v_y = heading_vector[:, 1]
+    # p_half = (a*v_x + b*v_y) / (v_x**2 + v_y**2)
+    # q = (a**2 + b**2 - 1) / (v_x**2 + v_y**2)
+    p_half = a * v_x + b * v_y
+    q = a**2 + b**2 - 1
+    sq_root = torch.sqrt(p_half**2 - q)
+    sq_root = torch.nan_to_num(
+        sq_root, nan=0
+    )  # rounding errors can cause negative values under square root
+    t1 = -p_half - sq_root
+    t2 = -p_half + sq_root
+    return torch.stack((t1, t2), dim=1)
 
 
 @torch.no_grad()
 def get_coarse_samples(
     start_pos: torch.Tensor,
     heading_vector: torch.Tensor,
+    ray_bounds: torch.Tensor,
     n_samples: int,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -87,8 +119,8 @@ def get_coarse_samples(
         torch.Tensor: shape (B, n_samples). Distances between adjacent samples.
     """
 
-    t_samples = _coarse_sampling(start_pos.shape[0], n_samples, start_pos.device)
-    sampling_distances = _get_sampling_distances(t_samples)
+    t_samples = _coarse_sampling(ray_bounds, n_samples, start_pos.device)
+    sampling_distances = _get_sampling_distances(t_samples, ray_bounds)
 
     # sampled points should have shape (B, n_samples, 3)
     sampled_points = start_pos.unsqueeze(1) + t_samples.unsqueeze(2) * heading_vector.unsqueeze(1)
@@ -101,6 +133,7 @@ def get_coarse_samples(
 def get_fine_samples(
     start_pos: torch.Tensor,
     heading_vector: torch.Tensor,
+    ray_bounds: torch.Tensor,
     coarse_sample_ts: torch.Tensor,
     coarse_sample_values: torch.Tensor,
     coarse_sampling_distances: torch.Tensor,
@@ -128,7 +161,7 @@ def get_fine_samples(
     # sort them so distance between adjacent samples can be calculated
     t_samples = torch.cat([coarse_sample_ts, t_samples], dim=1)
     t_samples = torch.sort(t_samples, dim=1)[0]
-    sampling_distances = _get_sampling_distances(t_samples)
+    sampling_distances = _get_sampling_distances(t_samples, ray_bounds)
 
     # sampled points should have shape (B, n_samples, 3)
     sampled_points = start_pos.unsqueeze(1) + t_samples.unsqueeze(2) * heading_vector.unsqueeze(1)
@@ -169,7 +202,9 @@ def _create_z_rotation_matrix(angles: torch.Tensor) -> tuple[torch.Tensor, torch
 
 
 @torch.no_grad()
-def _coarse_sampling(batch_size: int, n_samples: int, device: torch.device) -> torch.Tensor:
+def _coarse_sampling(
+    ray_bounds: torch.Tensor, n_samples: int, device: torch.device
+) -> torch.Tensor:
     """
     Samples n_samples points along the ray using the stratified sampling defined in the paper.
 
@@ -181,12 +216,18 @@ def _coarse_sampling(batch_size: int, n_samples: int, device: torch.device) -> t
         torch.Tensor: shape (B, n_samples). Contains the sampled t's
     """
 
-    interval_size = 2 / n_samples
+    interval_size = ((ray_bounds[:, 1] - ray_bounds[:, 0]) / n_samples).unsqueeze(1)
 
-    uniform_samples = torch.arange(0, n_samples, device=device).repeat(batch_size, 1)
-    uniform_samples = uniform_samples * interval_size  # This rescales each row to [0, 2)
+    uniform_samples = torch.arange(0, n_samples, device=ray_bounds.device).repeat(
+        ray_bounds.shape[0], 1
+    )
 
-    perturbation = torch.rand(batch_size, n_samples, device=device) * interval_size
+    # Rescale each row to [t_min, t_max)
+    uniform_samples = uniform_samples * interval_size + ray_bounds[:, 0].unsqueeze(1)
+
+    perturbation = (
+        torch.rand(ray_bounds.shape[0], n_samples, device=ray_bounds.device) * interval_size
+    )
 
     return uniform_samples + perturbation
 
@@ -292,6 +333,7 @@ def _edge_focused_fine_sampling_(
 @torch.no_grad()
 def _get_sampling_distances(
     t_samples: torch.Tensor,
+    ray_bounds: torch.Tensor,
 ) -> torch.Tensor:
     """
     Get the distance between adjacent sampled points along the ray. The distance associated with
@@ -308,5 +350,5 @@ def _get_sampling_distances(
     """
 
     # Append 2's to end of each batch so last sample will have a distance.
-    twos = 2 * torch.ones([t_samples.shape[0], 1], device=t_samples.device)
-    return torch.diff(t_samples, dim=1, append=twos)
+    ray_limit = torch.ones([t_samples.shape[0], 1], device=t_samples.device) * ray_bounds[:, 1:]
+    return torch.diff(t_samples, dim=1, append=ray_limit)

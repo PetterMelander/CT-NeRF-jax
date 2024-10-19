@@ -117,10 +117,11 @@ def train():
     # scaler_fine = GradScaler()
 
     for epoch in range(1, 1000):
-        for start_positions, heading_vectors, intensities in tqdm(dataloader):
+        for start_positions, heading_vectors, intensities, ray_bounds in tqdm(dataloader):
             start_positions = start_positions.to(hparams["device"], dtype=dtype, non_blocking=True)
             heading_vectors = heading_vectors.to(hparams["device"], dtype=dtype, non_blocking=True)
             intensities = intensities.to(hparams["device"], dtype=dtype, non_blocking=True)
+            ray_bounds = ray_bounds.to(hparams["device"], dtype=dtype, non_blocking=True)
 
             (
                 coarse_sample_ts,
@@ -131,6 +132,7 @@ def train():
                 start_positions,
                 heading_vectors,
                 intensities,
+                ray_bounds,
                 coarse_model,
                 coarse_optimizer,
                 scaler_coarse,
@@ -154,7 +156,7 @@ def train():
             total_batches += 1
             # if total_batches % 25 == 0:
                 # run.track(loss.cpu().item(), name="loss", step=total_batches)
-            run.track(coarse_loss.item(), name="coarse_loss", step=total_batches)
+            run.track(coarse_loss.cpu().item(), name="coarse_loss", step=total_batches)
 
         _eval(
             coarse_model,
@@ -187,6 +189,7 @@ def _coarse_step(
     start_positions: torch.Tensor,
     heading_vectors: torch.Tensor,
     intensities: torch.Tensor,
+    ray_bounds: torch.Tensor,
     coarse_model: torch.nn.Module,
     coarse_optimizer: torch.optim.Optimizer,
     scaler_coarse: GradScaler,
@@ -196,6 +199,7 @@ def _coarse_step(
     coarse_sample_ts, coarse_samples, coarse_sampling_distances = get_coarse_samples(
         start_positions,
         heading_vectors,
+        ray_bounds,
         hparams["training"]["num_coarse_samples"],
     )
 
@@ -214,7 +218,7 @@ def _coarse_step(
         coarse_sample_ts.detach(),
         attenuation_coeff_pred.detach(),
         coarse_sampling_distances.detach(),
-        loss.detach().cpu(),
+        loss.detach(),
     )
 
 
@@ -223,6 +227,7 @@ def _fine_step(
     start_positions: torch.Tensor,
     heading_vectors: torch.Tensor,
     intensities: torch.Tensor,
+    ray_bounds: torch.Tensor,
     fine_model: XRayModel,
     fine_optimizer: torch.optim.Optimizer,
     scaler_fine: GradScaler,
@@ -235,6 +240,7 @@ def _fine_step(
     fine_samples, fine_sampling_distances = get_fine_samples(
         start_positions,
         heading_vectors,
+        ray_bounds,
         coarse_sample_ts,
         attenuation_coeff_pred,
         coarse_sampling_distances,
@@ -328,8 +334,8 @@ def _eval(
         output = 1000 * (output - mu_water) / (mu_water - mu_air)
 
         output = output.reshape(img_size[0], img_size[1], img_size[2])
-        output = torch.permute(output, (2, 1, 0))
-        output = output.clamp_min(-1024)
+        # output = torch.permute(output, (2, 1, 0))
+        output = output.clamp(min=-1024)
 
         source_ct_image = sitk.ReadImage(str(source_ct_path))
         source_ct_image.SetDirection([0.0, -1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0])

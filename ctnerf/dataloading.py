@@ -54,20 +54,29 @@ class XRayDataset(Dataset):
 
         # Get positions and heading vectors in model space
         size_tensor = torch.tensor(xray_size)
-        self.start_positions, self.heading_vectors = get_rays(pixel_indices, angles, size_tensor)
+        self.start_positions, self.heading_vectors, self.ray_bounds = get_rays(
+            pixel_indices, angles, size_tensor
+        )
 
         # Tensor setup
         self.start_positions = self.start_positions.to(dtype=dtype)
         self.heading_vectors = self.heading_vectors.to(dtype=dtype)
         self.intensities = self.intensities.to(dtype=dtype)
+        self.ray_bounds = self.ray_bounds.to(dtype=dtype)
         self.start_positions.requires_grad_(False)
         self.heading_vectors.requires_grad_(False)
         self.intensities.requires_grad_(False)
+        self.ray_bounds.requires_grad_(False)
 
     def __getitem__(
         self, index: int
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        return self.start_positions[index], self.heading_vectors[index], self.intensities[index]
+        return (
+            self.start_positions[index],
+            self.heading_vectors[index],
+            self.intensities[index],
+            self.ray_bounds[index],
+        )
 
     def __len__(self) -> int:
         return self.len
