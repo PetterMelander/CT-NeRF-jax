@@ -119,7 +119,7 @@ def get_coarse_samples(
         torch.Tensor: shape (B, n_samples). Distances between adjacent samples.
     """
 
-    t_samples = _coarse_sampling(ray_bounds, n_samples, start_pos.device)
+    t_samples = _coarse_sampling(ray_bounds, n_samples)
     sampling_distances = _get_sampling_distances(t_samples, ray_bounds)
 
     # sampled points should have shape (B, n_samples, 3)
@@ -155,7 +155,7 @@ def get_fine_samples(
         torch.Tensor: shape (B, n_samples, 3). Contains the distances between adjacent samples.
     """
 
-    t_samples = _fine_sampling(n_samples, coarse_sample_values, coarse_sampling_distances)
+    t_samples = _edge_focused_fine_sampling(n_samples, coarse_sample_values, coarse_sampling_distances)
 
     # concatenate the coarse samples with the fine samples and
     # sort them so distance between adjacent samples can be calculated
@@ -203,7 +203,7 @@ def _create_z_rotation_matrix(angles: torch.Tensor) -> tuple[torch.Tensor, torch
 
 @torch.no_grad()
 def _coarse_sampling(
-    ray_bounds: torch.Tensor, n_samples: int, device: torch.device
+    ray_bounds: torch.Tensor, n_samples: int
 ) -> torch.Tensor:
     """
     Samples n_samples points along the ray using the stratified sampling defined in the paper.
@@ -280,7 +280,7 @@ def _fine_sampling(
 
 
 @torch.no_grad()
-def _edge_focused_fine_sampling_(
+def _edge_focused_fine_sampling(
     num_samples: int,
     coarse_sample_values: torch.Tensor,
     coarse_sampling_distances: torch.Tensor,

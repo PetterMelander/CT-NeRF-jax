@@ -1,0 +1,9 @@
+line-length = 100
+# Assume Python 3.10
+target-version = "py310"
+
+[lint]
+select = ["ALL"]
+
+[format]
+docstring-code-format = true
