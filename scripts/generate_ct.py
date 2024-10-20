@@ -1,10 +1,13 @@
+"""Script for generating a CT image from a trained model."""
+
 import torch
 
 from ctnerf.ct_creation import generate_ct
 from ctnerf.utils import get_data_dir, get_dataset_metadata, get_model_dir
 
 
-def main():
+def main() -> None:
+    """Generate a CT image from a trained model."""
     output_name = "test.nii.gz"
     model_path = get_model_dir() / "coarse-only" / "20241017-174113" / "71.pt"
     ct_path = get_data_dir() / "ct_images" / "nrrd" / output_name

@@ -1,3 +1,5 @@
+"""Script for training the model. Currently very ugly."""
+
 import datetime
 from pathlib import Path
 
@@ -12,8 +14,9 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from ctnerf.constants import MU_AIR, MU_WATER
 from ctnerf.dataloading import XRayDataset
-from ctnerf.models import XRayModel
+from ctnerf.model import XRayModel
 from ctnerf.rays import get_coarse_samples, get_fine_samples, log_beer_lambert_law
 from ctnerf.utils import get_data_dir, get_dataset_metadata, get_model_dir
 
@@ -23,16 +26,17 @@ torch.backends.cuda.allow_tf32 = True
 torch.backends.cuda.preferred_blas_library("cublaslt")
 
 
-def train():
-    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+def train() -> None:
+    """Train the model."""
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")  # noqa: DTZ005
 
     hparams = {
         "name": "coarse-only",
         "dataset": "test",
         "source_ct_image_path": str(get_data_dir() / "ct_images" / "nrrd" / "2 AC_CT_TBody.nrrd"),
-        # "source_ct_image_path": None,
+        # "source_ct_image_path": None,  # noqa: ERA001
         "model_save_interval": 1,
-        # "model_load_path": f"{get_model_dir()}/coarse-only/20241017-174113",
+        # "model_load_path": f"{get_model_dir()}/coarse-only/20241017-174113",  # noqa: ERA001
         "model_load_path": None,
         "resume_epoch": 1,
         "device": "cuda:0",
@@ -62,7 +66,8 @@ def train():
     elif hparams["training"]["dtype"] == "float32":
         dtype = torch.float32
     else:
-        raise ValueError(f"Unknown dtype: {hparams['dtype']}")
+        msg = f"Unknown dtype: {hparams['dtype']}"
+        raise ValueError(msg)
 
     model_save_path = get_model_dir() / f"{hparams['name']}" / f"{timestamp}"
     model_save_path.mkdir(parents=True, exist_ok=True)
@@ -113,26 +118,7 @@ def train():
     scaler_coarse = GradScaler()
     scaler_fine = GradScaler()
 
-    # def trace_handler(p: torch.profiler.profile):
-    #     output = p.key_averages().table(sort_by="self_cuda_time_total", row_limit=10)
-    #     print(output)
-    #     p.export_chrome_trace("trace_" + str(p.step_num) + ".json")
-
     for epoch in range(1, 1000):
-        # with profile(
-        #     activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU],
-        #     schedule=torch.profiler.schedule(
-        #         skip_first=15,
-        #         wait=0,
-        #         warmup=1,
-        #         active=5,
-        #         repeat=1,
-        #     ),
-        #     profile_memory=True,
-        #     record_shapes=True,
-        #     with_stack=True,
-        #     on_trace_ready=trace_handler,
-        # ) as p:
         for start_positions, heading_vectors, intensities, ray_bounds in tqdm(dataloader):
             start_positions = start_positions.to(hparams["device"], dtype=dtype, non_blocking=True)
             heading_vectors = heading_vectors.to(hparams["device"], dtype=dtype, non_blocking=True)
@@ -171,10 +157,8 @@ def train():
                 hparams,
             )
             total_batches += 1
-            # if total_batches % 25 == 0:
             run.track(loss.item(), name="loss", step=total_batches)
             run.track(coarse_loss.item(), name="coarse_loss", step=total_batches)
-            # p.step()
 
         _eval(
             coarse_model,
@@ -222,7 +206,7 @@ def _coarse_step(
     scaler_coarse: GradScaler,
     loss_fn: torch.nn.Module,
     hparams: dict,
-):
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     coarse_sample_ts, coarse_samples, coarse_sampling_distances = get_coarse_samples(
         start_positions,
         heading_vectors,
@@ -263,7 +247,7 @@ def _fine_step(
     attenuation_coeff_pred: torch.Tensor,
     coarse_sampling_distances: torch.Tensor,
     hparams: dict,
-):
+) -> torch.Tensor:
     fine_samples, fine_sampling_distances = get_fine_samples(
         start_positions,
         heading_vectors,
@@ -303,10 +287,11 @@ def _forward_backward(
     with autocast(device_type="cuda", enabled=hparams["training"]["use_amp"]):
         attenuation_coeff_pred = model(samples)
         attenuation_coeff_pred = attenuation_coeff_pred.reshape(
-            hparams["training"]["batch_size"], -1
+            hparams["training"]["batch_size"],
+            -1,
         )
         intensity_pred = log_beer_lambert_law(
-            attenuation_coeff_pred, sampling_distances, **hparams["scaling"]
+            attenuation_coeff_pred, sampling_distances, **hparams["scaling"],
         )
         loss = loss_fn(intensity_pred, intensities)
         loss = torch.sum(loss)
@@ -333,7 +318,7 @@ def _eval(
     epoch: int,
     run: Run,
     tag: str,
-):
+) -> None:
     model.eval()
 
     if source_ct_path is not None:
@@ -356,17 +341,13 @@ def _eval(
             index += output_chunk.shape[0]
 
         # Convert to hounsfield
-        mu_air = 0.0002504
-        mu_water = 0.2269
-        output = 1000 * (output - mu_water) / (mu_water - mu_air)
+        output = 1000 * (output - MU_WATER) / (MU_WATER - MU_AIR)
 
         output = output.reshape(img_size[0], img_size[1], img_size[2])
         output = torch.permute(output, (2, 1, 0))
         output = output.clamp(min=-1024)
-        ct_image = sitk.GetImageFromArray(output.detach().cpu().numpy())
-        ct_image.SetDirection([0.0, 1.0, 0.0,
-                               1.0, 0.0, 0.0,
-                               0.0, 0.0, 1.0])
+        ct_image = sitk.GetImageFromArray(output.numpy().astype("int16"))
+        ct_image.SetDirection([0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0])
         ct_image = sitk.GetArrayFromImage(ct_image)
 
         source_ct_image = sitk.ReadImage(str(source_ct_path))

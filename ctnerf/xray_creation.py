@@ -1,3 +1,5 @@
+"""Functions for generating X-ray images from CT images."""
+
 import json
 import shutil
 from pathlib import Path
@@ -6,14 +8,17 @@ import numpy as np
 import SimpleITK as sitk
 from tqdm import tqdm
 
+from ctnerf.constants import MU_AIR, MU_WATER
 from ctnerf.utils import convert_arrays_to_lists
 
 
 def generate_xrays(
-    ct_path: Path, output_dir: Path, angle_interval_size: int, max_angle: int
+    ct_path: Path,
+    output_dir: Path,
+    angle_interval_size: int,
+    max_angle: int,
 ) -> None:
-    """
-    Generates a set of X-ray images from a given CT image by rotating it and applying Beer-Lambert law.
+    """Generate X-ray images from a given CT image by rotating it and applying Beer-Lambert law.
 
     Args:
         ct_path (Path): The path to the CT image to be used for X-ray generation.
@@ -23,6 +28,7 @@ def generate_xrays(
 
     Returns:
         None
+
     """
     metadata = {}
 
@@ -52,14 +58,14 @@ def generate_xrays(
     }
 
     metadata = convert_arrays_to_lists(metadata)
-    with open(output_dir / "meta.json", "w") as f:
+    with (output_dir / "meta.json").open("w") as f:
         json.dump(metadata, f)
 
 
 def _rotate_ct(img: sitk.Image, angle: float) -> sitk.Image:
-    """
-    Rotate image by {angle} degrees about the z axis. Uses linear interpolation and
-    pads with -1024.
+    """Rotate image by {angle} degrees about the z axis.
+
+    Uses linear interpolation and pads with -1024.
 
     Args:
         img (sitk.Image): Input CT image to be rotated.
@@ -67,10 +73,10 @@ def _rotate_ct(img: sitk.Image, angle: float) -> sitk.Image:
 
     Returns:
         sitk.Image: Rotated CT image.
-    """
 
+    """
     image_center = img.TransformContinuousIndexToPhysicalPoint(
-        [(sz - 1) / 2 for sz in img.GetSize()]
+        [(sz - 1) / 2 for sz in img.GetSize()],
     )
 
     # Create the Euler3DTransform object
@@ -90,22 +96,23 @@ def _rotate_ct(img: sitk.Image, angle: float) -> sitk.Image:
 
 
 def _ct_to_xray(ct_image: sitk.Image) -> sitk.Image:
-    """
+    """Create an X-ray image from a given CT image.
+
     Turns a CT image into an X-ray image by using a discretized version of Beer-Lambert's law
     depth-wise, using CT values as attenuation coefficient.
 
     Args:
-        img (sitk.Image): SimpleITK Image object of a CT image.
+        ct_image (sitk.Image): SimpleITK Image object of a CT image.
 
     Returns:
         sitk.Image: X-ray image with dtype float64
-    """
 
+    """
     # Simulate X-ray image from CT
     pixel_spacing = ct_image.GetSpacing()[0]
     img_array = sitk.GetArrayFromImage(ct_image).astype(np.float64)
     img_array = _hounsfield_to_attenuation(img_array)
-    img_array = np.exp(-img_array.sum(axis=2) * pixel_spacing)  # Beer-Lambert's law along x-axis
+    img_array = np.exp(-img_array.sum(axis=2) * pixel_spacing / 10)  # Beer-Lambert law along x-axis
     img_array = img_array.clip(0, 1)  # transmittance must be between 0 and 1
 
     # Convert to sitk.Image, with appropriate metadata
@@ -123,21 +130,15 @@ def _ct_to_xray(ct_image: sitk.Image) -> sitk.Image:
 
 
 def _hounsfield_to_attenuation(img: np.ndarray) -> np.ndarray:
-    """
-    Reverse the formula for Hounsfield units to turn the CT image into a map of attenuation coefficients.
+    """Reverse the formula for Hounsfield units to turn the CT image into attenuation coefficients.
 
     Args:
         img (np.ndarray): CT image represented as 3D numpy array.
 
     Returns:
         np.ndarray: CT image rescaled to linear attenuation coefficients in mm.
+
     """
-    mu_air = (
-        0.0002504 / 10
-    )  # 50 keV, per mm (https://physics.nist.gov/PhysRefData/XrayMassCoef/ComTab/air.html)
-    mu_water = (
-        0.2269 / 10
-    )  # 50 keV, per mm (https://physics.nist.gov/PhysRefData/XrayMassCoef/ComTab/water.html)
-    img = img * (mu_water - mu_air) / 1000 + mu_water
-    img[img < 0] = 0  # remove negative attenuation coefficients caused by padding with -1024
-    return img
+    img = img * (MU_WATER - MU_AIR) / 1000 + MU_WATER
+    # remove negative attenuation coefficients caused by padding with -1024
+    return np.clip(img, a_min=0)

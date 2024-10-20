@@ -1,3 +1,5 @@
+"""Functions for generating CT images from a trained model."""
+
 from pathlib import Path
 
 import numpy as np
@@ -5,7 +7,8 @@ import SimpleITK as sitk
 import torch
 from tqdm import tqdm
 
-from ctnerf.models import XRayModel
+from ctnerf.constants import MU_AIR, MU_WATER
+from ctnerf.model import XRayModel
 
 
 @torch.no_grad()
@@ -18,9 +21,10 @@ def generate_ct(
     origin: tuple[float, float, float] | None = None,
     direction: tuple[float] | None = None,
     chunk_size: int = 4096 * 64,
-    device: torch.device = torch.device("cpu"),
+    device: torch.device = None,
 ) -> None:
-    """
+    """Generate a CT image from a trained model and save it to the specified path.
+
     Generates a CT image from a trained model and saves it to the specified path. Either img_size
     or spacing must be specified. If both are specified, spacing takes precedence.
 
@@ -30,18 +34,21 @@ def generate_ct(
         metadata (dict): Metadata information needed for setting the CT image properties.
         img_size (list[int, int, int]): The size (dimensions) of the output CT image.
             If None, spacing is used to determine the size.
-        spacing (list[float, float, float]): The spacing (spacing between voxels) of the output CT image.
+        spacing (list[float, float, float]): The voxel spacing of the output CT image.
             If None, img_size is used to determine the spacing.
         origin (list[float, float, float]): The origin of the output CT image in sitk notation.
             If None, (0, 0, 0) is used.
-        direction (list[float, float, float]): The direction of the output CT image in sitk notation.
-            If None, (1, 0, 0, 0, 1, 0, 0, 0, 1) is used.
-        chunk_size (int): Number of coordinate points to process in a single batch to avoid OOM errors.
+        direction (list[float]): The direction of the output CT image in sitk notation.
+            If None, (0, 1, 0, 1, 0, 0, 0, 0, 1) is used.
+        chunk_size (int): Number of coordinate points to process in each batch to avoid OOM errors.
         device (torch.device): The device to run the model inference on.
 
     Returns:
         None
+
     """
+    if device is None:
+        device = torch.device("cpu")
 
     # Define image size and spacing, giving x the same value as y
     original_size = [metadata["size"][0]] + metadata["size"]
@@ -51,17 +58,18 @@ def generate_ct(
         origin = [0, 0, 0]
 
     if direction is None:
-        direction = [0, -1, 0, -1, 0, 0, 0, 0, 1]
+        direction = [0, 1, 0, 1, 0, 0, 0, 0, 1]
 
     if img_size is None and spacing is None:
-        raise ValueError("Either img_size or spacing must be specified.")
+        msg = "Either img_size or spacing must be specified."
+        raise ValueError(msg)
 
     if spacing is not None:
         original_spacing = np.array(original_spacing)
         original_size = np.array(original_size)
         new_spacing = np.array(spacing)
         img_size = (original_size / original_spacing * new_spacing).astype(int)
-        
+
     elif img_size is not None:
         original_spacing = np.array(original_spacing)
         original_size = np.array(original_size)
@@ -82,8 +90,6 @@ def generate_ct(
     coords = torch.stack(torch.meshgrid((x, y, z), indexing="xy"), dim=-1)
     coords = coords.view(-1, 3)
 
-    coords = coords.to(device)
-
     # To avoid oom, inference is done in batches and result stored on cpu
     output = torch.tensor([], device="cpu")
     coords = coords.split(chunk_size, dim=0)
@@ -94,9 +100,7 @@ def generate_ct(
         output = torch.cat((output, output_chunk.cpu()))
 
     # Convert to hounsfield
-    mu_air = 0.0002504  # 50 keV, per cm (https://physics.nist.gov/PhysRefData/XrayMassCoef/ComTab/air.html)
-    mu_water = 0.2269  # 50 keV, per cm (https://physics.nist.gov/PhysRefData/XrayMassCoef/ComTab/water.html)
-    output = 1000 * (output - mu_water) / (mu_water - mu_air)
+    output = 1000 * (output - MU_WATER) / (MU_WATER - MU_AIR)
 
     output = output.reshape(img_size[0], img_size[1], img_size[2])
     output = torch.permute(output, (2, 1, 0))
