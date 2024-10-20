@@ -26,7 +26,7 @@ torch.backends.cuda.allow_tf32 = True
 torch.backends.cuda.preferred_blas_library("cublaslt")
 
 
-def train() -> None:
+def train() -> None:  # noqa: PLR0915
     """Train the model."""
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")  # noqa: DTZ005
 
@@ -59,18 +59,18 @@ def train() -> None:
         },
     }
 
-    if hparams["training"]["dtype"] == "bfloat16":
-        dtype = torch.bfloat16
-    elif hparams["training"]["dtype"] == "float16":
-        dtype = torch.float16
-    elif hparams["training"]["dtype"] == "float32":
-        dtype = torch.float32
-    else:
+    dtypes = {
+        "bfloat16": torch.bfloat16,
+        "float16": torch.float16,
+        "float32": torch.float32,
+    }
+    dtype = dtypes.get(hparams["training"]["dtype"])
+    if dtype is None:
         msg = f"Unknown dtype: {hparams['dtype']}"
         raise ValueError(msg)
 
-    model_save_path = get_model_dir() / f"{hparams['name']}" / f"{timestamp}"
-    model_save_path.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = get_model_dir() / f"{hparams['name']}" / f"{timestamp}"
+    checkpoint_path.mkdir(parents=True, exist_ok=True)
 
     xray_dir = get_data_dir() / "xrays" / hparams["dataset"]
     dataset = XRayDataset(xray_dir, dtype=dtype, **hparams["scaling"])
@@ -191,7 +191,7 @@ def train() -> None:
                     "run_hash": run.hash,
                     "model_hparams": hparams["model"],
                 },
-                model_save_path / f"{start_epoch + epoch}.pt",
+                checkpoint_path / f"{start_epoch + epoch}.pt",
             )
 
 
@@ -291,7 +291,9 @@ def _forward_backward(
             -1,
         )
         intensity_pred = log_beer_lambert_law(
-            attenuation_coeff_pred, sampling_distances, **hparams["scaling"],
+            attenuation_coeff_pred,
+            sampling_distances,
+            **hparams["scaling"],
         )
         loss = loss_fn(intensity_pred, intensities)
         loss = torch.sum(loss)
