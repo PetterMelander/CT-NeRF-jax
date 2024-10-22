@@ -1,0 +1,32 @@
+"model_type": "coarse"
+"model":
+  "n_layers": 8
+  "layer_dim": 256
+  "L": 20
+"output_dir": "test"
+"output_name": "test.nii.gz"
+"checkpoint":
+  "checkpoint_dir": "coarse-only/20241020-172736"
+  "resume_epoch": 2
+"device": "cuda:0"
+"xray_dir": "test"
+"image_size":
+"voxel_spacing":
+  - 1.5234375
+  - 1.5234375
+  - 3.0
+"image_origin":
+  - -389.23828125
+  - -538.2382812499998
+  - -1437.9999999999995
+"image_direction":
+  - 0.0
+  - 1.0
+  - 0.0
+  - 1.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 1.0
+"chunk_size": 65536

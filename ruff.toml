@@ -4,7 +4,7 @@ target-version = "py310"
 
 [lint]
 select = ["ALL"]
-ignore = ["N813", "PLW2901"]
+ignore = ["N813", "PLW2901", "DTZ005"]
 
 [lint.pylint]
 max-args = 15

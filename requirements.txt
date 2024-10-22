@@ -4,3 +4,4 @@ tqdm
 aim
 plotly # for aim figures
 pandas # for plotly express
+pyyaml
