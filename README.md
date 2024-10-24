@@ -9,7 +9,7 @@ Modifications include:
 - Removing the viewing angle dependent part of the original NeRF model. The angle dependent part is not needed since colours are not being predicted, and X-ray absorption does not depend on incidence angle of the ray.
 - Unlike in a normal pinhole camera, in an X-ray camera the light rays that produce the image are all parallel and orthogonal to the image plane. Additionally, each ray has a constant z value, i.e. it travels horizontally. 
 - Simplifying the calculation of the output pixel values to a modified version of the [Beer-Lambert Law](https://en.wikipedia.org/wiki/Beer%E2%80%93Lambert_law): $T\left(\mathbf{r}\right)=\frac{\ln\left(\exp\left[\sum_{i=1}^{N}{\sigma_i\delta_i}\right]+k\right)}{s}$. The logarithm and scaling parameters $s$ and $k$ were added to compensate for the fact the the X-ray image intensities had been scaled by $T_{new} = \frac{\ln\left(T_{old}+k\right)}{s}$ to enhance the contrast. The transmittance in a raw digital X-ray image is close to 0 throughout the entire body, with only minute differences visible. Scaling and taking the logarithm can greatly enhance the contrast, improving the model's ability to learn. 
-- Implementing a fine sampling scheme focused on edges in the output of the coarse model. A PDF of $ \hat{w} _i $ defined by $ w _i =\frac{\left |\sigma_ {i+1}-\sigma_ {i}\right|}{\delta_i}, \hat{w} _i=w _i/\sum _{j=1} ^ {N _c}{w _j} $ was used to create this effect, which helps the fine model focus on learning where edges between tissues are located. This helps give clearly defined organ boundaries. 
+- Implementing a fine sampling scheme focused on edges in the output of the coarse model. A PDF of $` \hat{w} _i `$ defined by $` w _i =\frac{\left |\sigma_ {i+1}-\sigma_ {i}\right|}{\delta_i}, \hat{w} _i=w _i/\sum _{j=1} ^ {N _c}{w _j} `$ was used to create this effect, which helps the fine model focus on learning where edges between tissues are located. This helps give clearly defined organ boundaries. 
 - Skriv om aktiveringsfunktioner
 
 ## X-ray creation
@@ -34,13 +34,13 @@ That is, the ray starts at $x=1$ and heads in the negative x direction. This wor
 
 For pixel $(y,z)$ in an X-ray image taken from angle $\theta$, the starting point $\mathbf{p}(y,z,\theta)$ and heading vector $\mathbf{v}(\theta)$ can be calculated by rotating $\mathbf{p}(y, z, 0)$ and $\mathbf{v}(0)$ by $\theta$ around the z-axis: 
 
-$$\mathbf{R}_z(\theta)=\begin{bmatrix} \cos{\theta} & -\sin{\theta} & 0 \\ \sin{\theta} & \cos{\theta} & 0 \\ 0 & 0 & 1\end{bmatrix}$$
-$$\mathbf{p}(y, z, \theta)=\mathbf{R}_z(\theta)\mathbf{p}(y,z,0$$
+$$\mathbf{R}_z(\theta)=\begin{bmatrix} \cos{\theta} & -\sin{\theta} & 0 \\\ \sin{\theta} & \cos{\theta} & 0 \\\ 0 & 0 & 1 \end{bmatrix}$$
+$$\mathbf{p}(y, z, \theta)=\mathbf{R}_z(\theta)\mathbf{p}(y,z,0)$$
 $$\mathbf{v}(\theta)=\mathbf{R}_z(\theta)\mathbf{v}(0)=\begin{bmatrix} \cos{\theta} & -\sin{\theta} & 0\end{bmatrix}^T$$
 
 Thus, the ray associated with pixel $(y,z)$ of an X-ray image taken from angle $\theta$ can be parameterized as $\mathbf{p}(y,z,\theta)+t\cdot\mathbf{v}(\theta)$ with $t\in[0,2]$. Sampling points along the ray is then as simple as sampling different values of $t$.
 
-A consequence of this sampling scheme is that the edges of the image will not be reached by rays from all angles, since the size of the cube is greater than $2$ along some directions. Also, some rays will reach outside the cube. This should not be a problem, as the middle of the image, where the subject is located, is hit by rays from every angle. An alternative sampling scheme where samples of $t$ are only drawn from the central cylinder of the cube, $x^2+y^2=1$, was also implemented and tested. For a starting position $\begin{bmatrix} a & b & c \end{bmatrix} ^T$ and heading vector $\begin{bmatrix} v_x & v_y & 0 \end{bmatrix} ^T$, this corresponds to $t\in\left[-(av_x+bv_y)\pm\sqrt{(av_x+bv_y)^2-(a^2+b^2-1)}\right]$. 
+A consequence of this sampling scheme is that the edges of the image will not be reached by rays from all angles, since the size of the cube is greater than $2$ along some directions. Also, some rays will reach outside the cube. This should not be a problem, as the middle of the image, where the subject is located, is hit by rays from every angle. An alternative sampling scheme where samples of $t$ are only drawn from the central cylinder of the cube, $x^2+y^2=1$, was also implemented and tested. For a starting position $`\begin{bmatrix} a & b & c \end{bmatrix} ^T`$ and heading vector $`\begin{bmatrix} v_x & v_y & 0 \end{bmatrix} ^T`$, this corresponds to $t\in\left[-(av_x+bv_y)\pm\sqrt{(av_x+bv_y)^2-(a^2+b^2-1)}\right]$. 
 
 ### Image I/O
 
