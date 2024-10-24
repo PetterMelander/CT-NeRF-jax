@@ -5,8 +5,8 @@ from pathlib import Path
 import torch
 from aim import Run
 
-from ctnerf.dataloading import XRayDataset
 from ctnerf.model import XRayModel
+from ctnerf.training.dataloading import XRayDataset
 from ctnerf.utils import get_model_dir, get_torch_dtype, get_xray_dir
 
 
