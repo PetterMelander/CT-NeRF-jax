@@ -177,7 +177,7 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         fine_model=fine_model,
         fine_optimizer=fine_optimizer,
         fine_scaler=fine_scaler,
-        n_fine_samples=conf_dict["training"]["num_fine_samples"],
+        n_fine_samples=conf_dict["training"].get("num_fine_samples"),
         ct_size=ct_size,
         slice_size_cm=slice_size_cm,
         source_ct_path=get_ct_dir() / conf_dict["data"]["source_ct_path"],
