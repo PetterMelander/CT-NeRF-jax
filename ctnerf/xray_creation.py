@@ -141,4 +141,4 @@ def _hounsfield_to_attenuation(img: np.ndarray) -> np.ndarray:
     """
     img = img * (MU_WATER - MU_AIR) / 1000 + MU_WATER
     # remove negative attenuation coefficients caused by padding with -1024
-    return np.clip(img, a_min=0)
+    return np.clip(img, a_min=0, a_max=None)
