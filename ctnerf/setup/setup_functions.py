@@ -123,5 +123,5 @@ def get_aim_run(conf_dict: dict, run_hash: str) -> Run:
 
     """
     run = Run(log_system_params=True) if run_hash == "" else Run(run_hash, log_system_params=True)
-    run.hparams = conf_dict
+    run["hparams"] = conf_dict
     return run

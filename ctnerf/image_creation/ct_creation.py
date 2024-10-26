@@ -96,7 +96,7 @@ def run_inference(
 
     # Reshape and permute to get correct orientation
     output = output.reshape(img_size[0], img_size[1], img_size[2])
-    output = torch.permute(output, (2, 1, 0))
+    output = torch.permute(output, (2, 0, 1))
 
     model.train()
     return output

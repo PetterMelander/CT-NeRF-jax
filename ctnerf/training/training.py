@@ -215,7 +215,7 @@ def _eval(
 
     if conf.source_ct_path is not None:
         generated_ct = run_inference(model, conf.ct_size, 4096 * 16, conf.device)
-        ct_direction = [0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        ct_direction = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
         generated_ct = tensor_to_sitk(generated_ct, direction=ct_direction)
         generated_ct = sitk.GetArrayFromImage(generated_ct)
 
