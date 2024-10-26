@@ -1,6 +1,6 @@
 """Script for generating a CT image from a trained model."""
 
-from ctnerf.ct_creation import generate_ct
+from ctnerf.image_creation.ct_creation import generate_ct
 from ctnerf.setup.config import get_inference_config
 from ctnerf.utils import get_config_dir
 

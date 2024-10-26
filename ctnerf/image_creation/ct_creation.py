@@ -132,7 +132,7 @@ def tensor_to_sitk(
     if spacing is not None:
         ct_image.SetSpacing(spacing)
 
-    if "ct_meta" in metadata:
+    if metadata is not None and "ct_meta" in metadata:
         for key, value in metadata["ct_meta"].items():
             ct_image.SetMetaData(key, value)
 

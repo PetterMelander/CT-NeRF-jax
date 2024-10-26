@@ -5,7 +5,7 @@ Neural Radiance Fields for View Synthesis](https://arxiv.org/abs/2003.08934) to 
 
 Modifications include:
 - Using the trained model to construct a CT image by sampling the model in a 3D grid rather than along rays. 
-- Training the model to predict only [linear attenuation coefficients](https://en.wikipedia.org/wiki/Attenuation_coefficient) (what the authors of the orinial NeRF paper call density, $\sigma$). Colour is not needed since a CT image is just a rescaled mapping of linear attenuation coefficients. The output of a ray $\mathbf{r}$ is thus its transmittance $T(\mathbf{r})$ rather than its colour. 
+- Training the model to predict only [linear attenuation coefficients](https://en.wikipedia.org/wiki/Attenuation_coefficient) (what the authors of the orinial NeRF paper call density, $\sigma$). Colour is not needed since a CT image is just a rescaled mapping of linear attenuation coefficients and thus has no colour. The output of a ray $\mathbf{r}$ is therefore its transmittance $T(\mathbf{r})$ rather than a colour. 
 - Removing the viewing angle dependent part of the original NeRF model. The angle dependent part is not needed since colours are not being predicted, and X-ray absorption does not depend on incidence angle of the ray.
 - Unlike in a normal pinhole camera, in an X-ray camera the light rays that produce the image are all parallel and orthogonal to the image plane. Additionally, each ray has a constant z value, i.e. it travels horizontally. 
 - Simplifying the calculation of the output pixel values to a modified version of the [Beer-Lambert Law](https://en.wikipedia.org/wiki/Beer%E2%80%93Lambert_law): $T\left(\mathbf{r}\right)=\frac{\ln\left(\exp\left[\sum_{i=1}^{N}{\sigma_i\delta_i}\right]+k\right)}{s}$. The logarithm and scaling parameters $s$ and $k$ were added to compensate for the fact the the X-ray image intensities had been scaled by $T_{new} = \frac{\ln\left(T_{old}+k\right)}{s}$ to enhance the contrast. The transmittance in a raw digital X-ray image is close to 0 throughout the entire body, with only minute differences visible. Scaling and taking the logarithm can greatly enhance the contrast, improving the model's ability to learn. 
@@ -70,14 +70,22 @@ The script supplement_metadata.py can add spacing and size (among other things) 
 
 During implementation, care was taken to use correct units of length in the Beer-Lambert law, meaning the model learns to output linear attenuation coefficients, enabling creation of CT images with values in Hounsfield units. 
 
+### Training and inference configuration
+
+Configuration of training and inference scripts is done by YAML files. Sample YAML config files with documentation are included in the repository.
+
 ## Results
 
 Ha med bilder!
 
 ## Assumptions and simplifications
 
+It was assumed that all X-ray photons have an energy of 50 keV. This is not true, [the X-rays used in X-ray imaging cover a broader spectrum](https://en.wikipedia.org/wiki/X-ray#Production_by_electrons). However, the spectrum is centered around roughly 50 keV, and all photons in the spectrum have [roughly the same linear attenuation coefficients in the tissues of the human body](https://physics.nist.gov/PhysRefData/XrayMassCoef/tab4.html). 
+
 In this project, it was assumed that all the X-rays that create an X-ray image are parallel and orthogonal to the image plane. This is strictly not true, as there is some [geometric magnification](https://en.wikipedia.org/wiki/Projectional_radiography#Geometric_magnification). If real X-ray images were used, this would cause blurring of the CT image unless the geometric magnification was accounted for. 
 
-It was also assumed that all X-ray photons have an energy of 50 keV. This is true, [the X-rays used in X-ray imaging cover a broader spectrum](https://en.wikipedia.org/wiki/X-ray#Production_by_electrons). However, the spectrum is centered around roughly 50 keV, and all photons in the spectrum have [roughly the same linear attenuation coefficients in the tissues of the human body](https://physics.nist.gov/PhysRefData/XrayMassCoef/tab4.html). 
+While using CT images to generate X-ray images avoids the issue of geometric magnification, it also limits the possible output resolution. The model cannot possibly learn more details than are present in the original CT image. If a series of real X-ray images were used to train the model, their combined information content could feasibly result in the model learning a higher resolution representation of the subject than in any individual X-ray image. 
+
+None of the ray sampling methods implemented are able to sample densely in the corners of the model space. This was deemed to be acceptable since real CT images are void of information outside the central cylinder, typically being padded with -1024 HU. However, if X-ray images were used that only covered a limited part of the body and therefore filled out the model space entirely, the corners would likely have low resolution or incorrect reconstruction.  
 
 ## Ablation study

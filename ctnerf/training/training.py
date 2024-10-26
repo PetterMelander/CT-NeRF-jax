@@ -10,7 +10,7 @@ from aim import Figure
 from torch import GradScaler, autocast
 from tqdm import tqdm
 
-from ctnerf.ct_creation import run_inference, tensor_to_sitk
+from ctnerf.image_creation.ct_creation import run_inference, tensor_to_sitk
 from ctnerf.model import XRayModel
 from ctnerf.rays import get_coarse_samples, get_fine_samples, log_beer_lambert_law
 from ctnerf.setup.config import TrainingConfig, get_training_config

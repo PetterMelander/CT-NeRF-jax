@@ -1,7 +1,7 @@
 """Script for generating X-ray images from a given CT image."""
 
+from ctnerf.image_creation.xray_creation import generate_xrays
 from ctnerf.utils import get_ct_dir, get_xray_dir
-from ctnerf.xray_creation import generate_xrays
 
 max_angle = 180
 angle_interval_size = 1

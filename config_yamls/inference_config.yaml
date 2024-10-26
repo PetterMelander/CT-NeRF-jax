@@ -1,25 +1,25 @@
-"model_type": "coarse"
+"model_type": "coarse" # 'coarse' or 'fine'
 "model":
-  "n_layers": 8
-  "layer_dim": 256
-  "L": 20
-"output_dir": "test"
-"output_name": "test.nii.gz"
+  "n_layers": 8 # number of layers in the trained model
+  "layer_dim": 256 # dimension of the layers
+  "L": 20 # number of frequencies to use for the positional encoding
+"output_dir": "test" # directory to save the generated CT image
+"output_name": "test.nii.gz" # name of the generated CT image
 "checkpoint":
-  "checkpoint_dir": "coarse-only/20241020-172736"
-  "resume_epoch": 2
-"device": "cuda:0"
-"xray_dir": "test"
-"image_size":
-"voxel_spacing":
+  "checkpoint_dir": "coarse-only/20241020-172736" # directory to load the model checkpoint from
+  "resume_epoch": 2 # epoch to load the model from
+"device": "cuda:0" # device to run the model inference on
+"xray_dir": "test" # directory containing the X-ray images, optional if proper metadata is available
+"image_size": # size of the output image, optional if voxel_spacing is specified
+"voxel_spacing": # voxel spacing of the output image, optional if image_size is specified
   - 1.5234375
   - 1.5234375
   - 3.0
-"image_origin":
+"image_origin": # origin of the output image, optional
   - -389.23828125
   - -538.2382812499998
   - -1437.9999999999995
-"image_direction":
+"image_direction": # direction of the output image, optional
   - 0.0
   - 1.0
   - 0.0
@@ -29,4 +29,4 @@
   - 0.0
   - 0.0
   - 1.0
-"chunk_size": 65536
+"chunk_size": 65536 # number of coordinate points to process in each batch to avoid OOM errors
