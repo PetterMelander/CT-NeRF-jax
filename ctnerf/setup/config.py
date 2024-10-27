@@ -235,7 +235,7 @@ def get_inference_config(config_path: Path) -> InferenceConfig:
       None, (0, 0, 0) is used.
 
     - image_direction: list[float]. Direction of the output image in sitk notation. If None,
-      (0, 1, 0, 1, 0, 0, 0, 0, 1) is used.
+      (1, 0, 0, 0, 1, 0, 0, 0, 1) is used.
 
     - chunk_size: int. Number of rays to process in each batch to avoid OOM errors. If None,
       4096 * 16 is used.
@@ -288,6 +288,6 @@ def get_inference_config(config_path: Path) -> InferenceConfig:
         image_size=conf_dict.get("image_size"),
         voxel_spacing=conf_dict.get("voxel_spacing"),
         image_origin=conf_dict.get("image_origin") or [0, 0, 0],
-        image_direction=conf_dict.get("image_direction") or [0, 0, 1, 0, 0, 1, 0, 0, 1],
+        image_direction=conf_dict.get("image_direction") or [1, 0, 0, 0, 1, 0, 0, 0, 1],
         xray_metadata=conf_dict.get("xray_metadata") or xray_metadata,
     )

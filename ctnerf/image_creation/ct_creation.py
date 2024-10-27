@@ -82,13 +82,13 @@ def run_inference(
     coords = coords.view(-1, 3)
 
     # To avoid oom, inference is done in batches and result stored on cpu
-    output = torch.tensor([], device="cpu")
+    output = torch.empty(len(coords), device=torch.device("cpu"))
     coords = coords.split(chunk_size, dim=0)
-    for chunk in tqdm(coords, desc="Generating", total=len(coords)):
+    for i, chunk in enumerate(tqdm(coords, desc="Generating", total=len(coords), leave=False)):
         chunk = chunk.to(device)
         output_chunk = model(chunk)
         output_chunk = output_chunk.view(-1)
-        output = torch.cat((output, output_chunk.cpu()))
+        output[i * chunk_size : (i + 1) * chunk_size] = output_chunk.cpu()
 
     # Convert to hounsfield
     output = 1000 * (output - MU_WATER) / (MU_WATER - MU_AIR)

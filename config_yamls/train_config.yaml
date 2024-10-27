@@ -1,4 +1,4 @@
-name: "precision_testing/full" # name of the run
+name: "precision_testing/amp_all_backends" # name of the run
 device: "cuda:0" # device to run the model on
 
 
@@ -27,7 +27,7 @@ training:
   num_coarse_samples: 192 # number of coarse samples per ray
   num_fine_samples: # number of fine samples per ray, optional
   dtype: "float32" # data type of the loaded data
-  use_amp: False # whether to use automatic mixed precision
+  use_amp: True # whether to use automatic mixed precision
 
 
 scaling:
