@@ -108,16 +108,18 @@ def get_coarse_samples(
     heading_vector: torch.Tensor,
     ray_bounds: torch.Tensor,
     n_samples: int,
+    plateau_ratio: float,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Get the coarse samples along the ray.
 
-    Samples n_samples points along the ray using the stratified sampling defined in the paper.
+    Samples n_samples points along the ray using plateau sampling within the cylinder bounds.
 
     Args:
         start_pos (torch.Tensor): shape (B, 3). Starting position of the ray.
         heading_vector (torch.Tensor): shape (B, 3). Heading vector of the ray.
         ray_bounds (torch.Tensor): shape (B, 2). Ray bounds.
         n_samples (int): number of samples.
+        plateau_ratio (float): ratio of plateau width to standard deviation.
 
     Returns:
         torch.Tensor: shape (B, n_samples). t values of the sampled points.
@@ -125,7 +127,7 @@ def get_coarse_samples(
         torch.Tensor: shape (B, n_samples). Distances between adjacent samples.
 
     """
-    t_samples = _coarse_sampling(ray_bounds, n_samples)
+    t_samples = _coarse_sampling(ray_bounds, n_samples, plateau_ratio)
     sampling_distances = _get_sampling_distances(t_samples, ray_bounds)
 
     # sampled points should have shape (B, n_samples, 3)
@@ -220,31 +222,34 @@ def _create_z_rotation_matrix(angles: torch.Tensor) -> tuple[torch.Tensor, torch
 
 
 @torch.no_grad()
-def _coarse_sampling(ray_bounds: torch.Tensor, n_samples: int) -> torch.Tensor:
-    """Sample n_samples points evenly along the ray.
+def _coarse_sampling(
+    ray_bounds: torch.Tensor,
+    n_samples: int,
+    plateau_ratio: float,
+) -> torch.Tensor:
+    """Sample n_samples points along the ray using plateau sampling within the cylinder bounds.
 
     Args:
         ray_bounds (torch.Tensor): shape (B, 2). Ray bounds.
         n_samples (int): number of samples
+        plateau_ratio (float): ratio of plateau width to standard deviation
     Returns:
         torch.Tensor: shape (B, n_samples). Contains the sampled t's
 
     """
-    interval_size = ((ray_bounds[:, 1] - ray_bounds[:, 0]) / n_samples).unsqueeze(1)
-
-    uniform_samples = torch.arange(0, n_samples, device=ray_bounds.device).repeat(
-        ray_bounds.shape[0],
-        1,
+    x1 = torch.rand(ray_bounds.shape[0], n_samples, device=ray_bounds.device) * plateau_ratio - (
+        plateau_ratio / 2
     )
+    x2 = torch.randn(ray_bounds.shape[0], n_samples, device=ray_bounds.device)
+    samples = x1 + x2
+    samples = torch.sort(samples, dim=1)[0]
 
     # Rescale each row to [t_min, t_max)
-    uniform_samples = uniform_samples * interval_size + ray_bounds[:, 0].unsqueeze(1)
-
-    perturbation = (
-        torch.rand(ray_bounds.shape[0], n_samples, device=ray_bounds.device) * interval_size
-    )
-
-    return uniform_samples + perturbation
+    t_min = ray_bounds[:, 0].unsqueeze(1)
+    t_max = ray_bounds[:, 1].unsqueeze(1)
+    s_min = samples[:, 0].unsqueeze(1)
+    s_max = samples[:, -1].unsqueeze(1)
+    return (samples - s_min) / (s_max - s_min) * (t_max - t_min) + t_min
 
 
 @torch.no_grad()

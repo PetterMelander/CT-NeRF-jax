@@ -48,6 +48,7 @@ class TrainingConfig:
     coarse_optimizer: torch.optim.Optimizer | None  # coarse optimizer
     coarse_scaler: torch.GradScaler | None  # coarse gradient scaler
     n_coarse_samples: int  # number of coarse samples
+    plateau_ratio: float  # ratio of plateau width to standard deviation
 
     # Fine model
     fine_model: XRayModel | None  # fine model
@@ -174,6 +175,7 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         coarse_optimizer=coarse_optimizer,
         coarse_scaler=coarse_scaler,
         n_coarse_samples=conf_dict["training"]["num_coarse_samples"],
+        plateau_ratio=conf_dict["training"]["plateau_ratio"],
         fine_model=fine_model,
         fine_optimizer=fine_optimizer,
         fine_scaler=fine_scaler,

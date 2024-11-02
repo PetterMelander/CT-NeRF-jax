@@ -118,6 +118,7 @@ def _coarse_step(
         heading_vectors,
         ray_bounds,
         conf.n_coarse_samples,
+        conf.plateau_ratio,
     )
 
     loss, attenuation_coeff_pred = _forward_backward(
