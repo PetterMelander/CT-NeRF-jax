@@ -22,13 +22,22 @@ def train(config_path: Path) -> None:
 
     for epoch in range(1, 1000):
         for start_positions, heading_vectors, intensities, ray_bounds in tqdm(conf.dataloader):
-            _step(
+            start_positions = start_positions.to(conf.device, dtype=conf.dtype, non_blocking=True)
+            heading_vectors = heading_vectors.to(conf.device, dtype=conf.dtype, non_blocking=True)
+            intensities = intensities.to(conf.device, dtype=conf.dtype, non_blocking=True)
+            ray_bounds = ray_bounds.to(conf.device, dtype=conf.dtype, non_blocking=True)
+
+            coarse_loss, fine_loss = _step(
                 start_positions,
                 heading_vectors,
                 intensities,
                 ray_bounds,
                 conf,
             )
+
+            conf.tracker.track(coarse_loss.item(), name="coarse_loss")
+            if fine_loss is not None:
+                conf.tracker.track(fine_loss.item(), name="fine_loss")
 
         _eval(
             conf.coarse_model,
@@ -66,12 +75,8 @@ def _step(
     ray_bounds: torch.Tensor,
     conf: TrainingConfig,
 ) -> None:
-    start_positions = start_positions.to(conf.device, dtype=conf.dtype, non_blocking=True)
-    heading_vectors = heading_vectors.to(conf.device, dtype=conf.dtype, non_blocking=True)
-    intensities = intensities.to(conf.device, dtype=conf.dtype, non_blocking=True)
-    ray_bounds = ray_bounds.to(conf.device, dtype=conf.dtype, non_blocking=True)
-
     (
+        coarse_loss,
         coarse_sample_ts,
         coarse_attenuation_coeff_pred,
         coarse_sampling_distances,
@@ -84,7 +89,7 @@ def _step(
     )
 
     if conf.fine_model is not None:
-        _fine_step(
+        fine_loss = _fine_step(
             start_positions,
             heading_vectors,
             intensities,
@@ -94,9 +99,13 @@ def _step(
             coarse_sampling_distances,
             conf,
         )
+    else:
+        fine_loss = None
+
+    return coarse_loss, fine_loss
 
 
-# @torch.compile(mode="max-autotune", disable=True)
+@torch.compile(mode="max-autotune", disable=True)
 def _coarse_step(
     start_positions: torch.Tensor,
     heading_vectors: torch.Tensor,
@@ -122,16 +131,15 @@ def _coarse_step(
         conf,
     )
 
-    conf.tracker.track(loss.item(), name="coarse_loss")
-
     return (
+        loss.detach(),
         coarse_sample_ts.detach(),
         attenuation_coeff_pred.detach(),
         coarse_sampling_distances.detach(),
     )
 
 
-# @torch.compile(mode="max-autotune", disable=True)
+@torch.compile(mode="max-autotune", disable=True)
 def _fine_step(
     start_positions: torch.Tensor,
     heading_vectors: torch.Tensor,
@@ -163,7 +171,7 @@ def _fine_step(
         conf,
     )
 
-    conf.tracker.track(loss.item(), name="loss")
+    return loss.detach()
 
 
 def _forward_backward(
