@@ -1,0 +1,44 @@
+"device": "cuda:0" # device to run the model inference on
+
+
+"model_type": "coarse" # 'coarse' or 'fine'
+"model":
+  "n_layers": 16 # number of layers in the trained model
+  "layer_dim": 384 # dimension of the layers
+  "L": 20 # number of frequencies to use for the positional encoding
+
+
+"checkpoint":
+  "checkpoint_dir": "coarse-only/mae" # directory to load the model checkpoint from
+  "resume_epoch": 1 # epoch to load the model from
+
+
+"output_dir": "mae_test" # directory to save the generated CT image
+"output_name": "mae_test.nrrd" # name of the generated CT image
+"xray_dir": "test" # directory containing the X-ray images, optional if proper metadata is available
+
+
+"image_size": # size of the output image, optional if voxel_spacing is specified
+"voxel_spacing": # voxel spacing of the output image, optional if image_size is specified
+  - 1.5234375
+  - 1.5234375
+  - 3.0
+"image_origin": # origin of the output image, optional
+  - -389.23828125
+  - -538.2382812499998
+  - -1437.9999999999995
+"image_direction": # direction of the output image, optional
+  - 1.0
+  - 0.0
+  - 0.0
+
+  - 0.0
+  - 1.0
+  - 0.0
+
+  - 0.0
+  - 0.0
+  - 1.0
+
+
+"chunk_size": 65536 # number of coordinate points to process in each batch to avoid OOM errors
