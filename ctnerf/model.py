@@ -5,6 +5,51 @@ from typing import Any
 import torch
 
 
+class ExULayer(torch.nn.Module):
+    """Exp-centered layer."""
+
+    def __init__(self, in_features: int, out_features: int) -> None:
+        """Initialize the ExULayer module.
+
+        Args:
+            in_features (int): Number of input features.
+            out_features (int): Number of output features.
+
+        """
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.empty((in_features, out_features)))
+        self.bias = torch.nn.Parameter(torch.empty(in_features))
+        self._truncated_normal_(self.weight, mean=4.0, std=0.5)
+        self._truncated_normal_(self.bias, std=0.5)
+
+    def _truncated_normal_(
+        self,
+        tensor: torch.Tensor,
+        mean: float = 0.0,
+        std: float = 1.0,
+        cutoff: float = 2.0,
+    ) -> None:
+        size = tensor.shape
+        tmp = tensor.new_empty((*size, 4)).normal_()
+        valid = (tmp < cutoff) & (tmp > -cutoff)
+        ind = valid.max(-1, keepdim=True)[1]
+        tensor.data.copy_(tmp.gather(-1, ind).squeeze(-1))
+        tensor.data.mul_(std).add_(mean)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass of the ExULayer.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output tensor after applying ExU transformation.
+
+        """
+        exu = (x - self.bias) @ torch.exp(self.weight)
+        return torch.clip(exu, 0, 1)
+
+
 class XRayModel(torch.nn.Module):
     """Class for the MLP used to generate CT images."""
 

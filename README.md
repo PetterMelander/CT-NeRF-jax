@@ -5,11 +5,12 @@ Neural Radiance Fields for View Synthesis](https://arxiv.org/abs/2003.08934) to 
 
 Modifications include:
 - Using the trained model to construct a CT image by sampling the model in a 3D grid rather than along rays. 
-- Training the model to predict only [linear attenuation coefficients](https://en.wikipedia.org/wiki/Attenuation_coefficient) (what the authors of the orinial NeRF paper call density, $\sigma$). Colour is not needed since a CT image is just a rescaled mapping of linear attenuation coefficients and thus has no colour. The output of a ray $\mathbf{r}$ is therefore its transmittance $T(\mathbf{r})$ rather than a colour. 
+- Training the model to predict only [linear attenuation coefficients](https://en.wikipedia.org/wiki/Attenuation_coefficient) (what the authors of the orinial NeRF paper call density, $\sigma$). Colour is not needed since a CT image is just a rescaled mapping of linear attenuation coefficients and thus has no colour. The output of a ray $\mathbf{r}$ is therefore its transmittance $T(\mathbf{r})$ after passing through the subject rather than a colour. 
 - Removing the viewing angle dependent part of the original NeRF model. The angle dependent part is not needed since colours are not being predicted, and X-ray absorption does not depend on incidence angle of the ray.
-- Unlike in a normal pinhole camera, in an X-ray camera the light rays that produce the image are all parallel and orthogonal to the image plane. Additionally, each ray has a constant z value, i.e. it travels horizontally. 
+- Unlike in a normal pinhole camera, in an X-ray camera the light rays that produce the image are all parallel and orthogonal to the image plane <sup>(almost, see assumptions and simplifications below)</sup>. Additionally, each ray has a constant z value, i.e. it travels horizontally. 
 - Simplifying the calculation of the output pixel values to a modified version of the [Beer-Lambert Law](https://en.wikipedia.org/wiki/Beer%E2%80%93Lambert_law): $T\left(\mathbf{r}\right)=\frac{\ln\left(\exp\left[\sum_{i=1}^{N}{\sigma_i\delta_i}\right]+k\right)}{s}$. The logarithm and scaling parameters $s$ and $k$ were added to compensate for the fact the the X-ray image intensities had been scaled by $T_{new} = \frac{\ln\left(T_{old}+k\right)}{s}$ to enhance the contrast. The transmittance in a raw digital X-ray image is close to 0 throughout the entire body, with only minute differences visible. Scaling and taking the logarithm can greatly enhance the contrast, improving the model's ability to learn. 
 - Implementing a fine sampling scheme focused on edges in the output of the coarse model. A PDF of $` \hat{w} _i `$ defined by $` w _i =\frac{\left |\sigma_ {i+1}-\sigma_ {i}\right|}{\delta_i}, \hat{w} _i=w _i/\sum _{j=1} ^ {N _c}{w _j} `$ was used to create this effect, which helps the fine model focus on learning where edges between tissues are located. This helps give clearly defined organ boundaries. 
+- Skriv om fler samplingstrategier
 - Skriv om aktiveringsfunktioner
 
 ## X-ray creation
@@ -89,3 +90,9 @@ While using CT images to generate X-ray images avoids the issue of geometric mag
 None of the ray sampling methods implemented are able to sample densely in the corners of the model space. This was deemed to be acceptable since real CT images are void of information outside the central cylinder, typically being padded with -1024 HU. However, if X-ray images were used that only covered a limited part of the body and therefore filled out the model space entirely, the corners would likely have low resolution or incorrect reconstruction.  
 
 ## Ablation study
+
+## Todo list
+
+* Rather than transform the images with logarithms, and modifying the Beer-Lambert law, simply reduce the Hounsfield values of the input images. This should give better contrast once the CT's are turned into X-rays, and will also help with precision since the pixels inside the body will have better value spread. Then, after inference, simply scale the values back to the original Hounsfield units. 
+* Scale input images to [0, 1]. Currently, they are in the range [-2.3, 0]. This is because the original X-rays are [0, 1], but to achieve better contrast inside the image, they are scaled and logarithm'd. After this contrast adjustment, rescaling could be performed to adjust the value range to something more suitable for NN's. 
+* Try different activation functions for the last layer. The model outputs the transmittance at each pixel. This is a value in the range [0, 1]. Currently, the model has no activation function on its output layer. However, an activation function could be used to introduce inductive bias to the model by limiting its output values, for example with a sigmoid function that limits the output to [0, 1].
