@@ -5,24 +5,19 @@ import torch
 from ctnerf import ray_sampling
 
 
-def log_beer_lambert_law(
+def beer_lambert_law(
     attenuation_coeffs: torch.Tensor,
     distances: torch.Tensor,
-    s: float,
-    k: float,
     slice_size_cm: float,
 ) -> torch.Tensor:
     """Use Beer-Lambert law to calculate transmittance of a ray.
 
     Uses Beer-Lambert law to calculate transmittance given the attenuation coefficients and
-    distances of sampled points along ray. Uses a version of the law that has been adjusted for
-    scaling of the transmittance by adding k, taking the log, and dividing by s.
+    distances of sampled points along ray.
 
     Args:
         attenuation_coeffs (torch.Tensor): shape (B, N)
         distances (torch.Tensor): shape (B, N)
-        s (float): scaling factor
-        k (float): offset
         slice_size_cm (float): size of an axial slice in centimetres
 
     Returns:
@@ -31,9 +26,7 @@ def log_beer_lambert_law(
     """
     # scale to cm because the CT creation scripts uses attenuation per cm
     distances = distances * slice_size_cm / 2
-
-    exp = torch.exp(-torch.sum(attenuation_coeffs * distances, dim=1))
-    return torch.log(exp + k) / s
+    return torch.exp(-torch.sum(attenuation_coeffs * distances, dim=1))
 
 
 @torch.no_grad()
@@ -222,6 +215,7 @@ def _create_z_rotation_matrix(angles: torch.Tensor) -> tuple[torch.Tensor, torch
     )
 
     return rotation_matrices, heading_vector
+
 
 @torch.no_grad()
 def get_sampling_distances(

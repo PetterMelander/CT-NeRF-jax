@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from ctnerf.image_creation.ct_creation import run_inference, tensor_to_sitk
 from ctnerf.model import XRayModel
-from ctnerf.rays import get_coarse_samples, get_fine_samples, log_beer_lambert_law
+from ctnerf.rays import beer_lambert_law, get_coarse_samples, get_fine_samples
 from ctnerf.setup.config import TrainingConfig, get_training_config
 
 
@@ -190,11 +190,9 @@ def _forward_backward(
     with autocast(device_type="cuda", enabled=conf.use_amp):
         attenuation_coeff_pred = model(samples)
         attenuation_coeff_pred = attenuation_coeff_pred.reshape(conf.batch_size, -1)
-        intensity_pred = log_beer_lambert_law(
+        intensity_pred = beer_lambert_law(
             attenuation_coeff_pred,
             sampling_distances,
-            conf.s,
-            conf.k,
             conf.slice_size_cm,
         )
         loss = loss_fn(intensity_pred, intensities)
@@ -223,7 +221,13 @@ def _eval(
     model.eval()
 
     if conf.source_ct_path is not None:
-        generated_ct = run_inference(model, conf.ct_size, 4096 * 64, conf.device)
+        generated_ct = run_inference(
+            model,
+            conf.ct_size,
+            4096 * 64,
+            conf.attenuation_scaling_factor,
+            conf.device,
+        )
         ct_direction = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
         generated_ct = tensor_to_sitk(generated_ct, direction=ct_direction)
         generated_ct = sitk.GetArrayFromImage(generated_ct)

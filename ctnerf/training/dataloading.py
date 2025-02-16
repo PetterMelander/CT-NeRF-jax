@@ -29,8 +29,7 @@ class XRayDataset(Dataset):
     def __init__(
         self,
         xray_dir: Path,
-        s: float = 1,
-        k: float = 0,
+        attenuation_scaling_factor: float,
         dtype: torch.dtype = torch.float32,
         *args: tuple,
         **kwargs: dict[str, Any],
@@ -43,8 +42,7 @@ class XRayDataset(Dataset):
 
         Args:
             xray_dir (Path): Directory containing X-ray image files and metadata.
-            s (float, optional): Scaling factor for intensity values. Defaults to 1.
-            k (float, optional): Value added to intensity values before applying log. Defaults to 0.
+            attenuation_scaling_factor (float): Scaling factor for the attenuation values.
             dtype (torch.dtype, optional): Data type for the tensors. Defaults to torch.float32.
             *args: Additional positional arguments passed to the base class.
             **kwargs: Additional keyword arguments passed to the base class.
@@ -65,7 +63,7 @@ class XRayDataset(Dataset):
         angles, intensities, pixel_indices = self._read_images(xray_dir, metadata)
 
         # Scale intensities
-        intensities = torch.log(intensities + k) / s
+        intensities = intensities.to(torch.float64).pow(1/attenuation_scaling_factor)
         self.intensities = torch.nan_to_num(intensities)  # intensity 0 gives -inf after log
 
         # Get positions and heading vectors in model space
