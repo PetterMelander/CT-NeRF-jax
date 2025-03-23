@@ -44,4 +44,4 @@
 "chunk_size": 65536 # number of coordinate points to process in each batch to avoid OOM errors
 
 scaling:
-  attenuation_scaling_factor: 5 # scaling factor to raise X-ray images to the reciprocal of
+  attenuation_scaling_factor: 1 # scaling factor to raise X-ray images to the reciprocal of

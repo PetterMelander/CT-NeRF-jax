@@ -32,4 +32,4 @@ training:
 
 
 scaling:
-  attenuation_scaling_factor: 5 # scaling factor to raise X-ray images to the reciprocal of
+  attenuation_scaling_factor: 1 # scaling factor to raise X-ray images to the reciprocal of
