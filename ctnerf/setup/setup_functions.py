@@ -63,8 +63,7 @@ def load_checkpoint(
     """
     if conf_dict["checkpoint"].get("checkpoint_dir") is not None:
         checkpoint_path = Path(
-            get_model_dir() /
-            conf_dict["checkpoint"]["checkpoint_dir"],
+            get_model_dir() / conf_dict["checkpoint"]["checkpoint_dir"],
             (str(conf_dict["checkpoint"]["resume_epoch"]) + ".pt"),
         )
         checkpoint = torch.load(
@@ -97,8 +96,9 @@ def get_dataloader(conf_dict: dict) -> torch.utils.data.DataLoader:
     dataset = XRayDataset(
         xray_dir=get_xray_dir() / conf_dict["data"]["xray_dir"],
         dtype=get_torch_dtype(conf_dict["training"]["dtype"]),
-        s=conf_dict["scaling"]["s"],
-        k=conf_dict["scaling"]["k"],
+        attenuation_scaling_factor=conf_dict["scaling"].get("attenuation_scaling_factor"),
+        s=conf_dict["scaling"].get("s"),
+        k=conf_dict["scaling"].get("k"),
     )
 
     return torch.utils.data.DataLoader(

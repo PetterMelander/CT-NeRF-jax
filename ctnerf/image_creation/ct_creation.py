@@ -40,6 +40,7 @@ def generate_ct(conf: InferenceConfig) -> None:
         conf.fine_model or conf.coarse_model,
         image_size,
         conf.chunk_size,
+        conf.attenuation_scaling_factor,
         conf.device,
     )
     ct_image = tensor_to_sitk(
@@ -58,6 +59,7 @@ def run_inference(
     model: XRayModel,
     img_size: tuple[int, int, int],
     chunk_size: int,
+    attenuation_scaling_factor: float | None,
     device: torch.device,
 ) -> torch.Tensor:
     """Run inference on the model.
@@ -66,6 +68,7 @@ def run_inference(
         model (XRayModel): The model to run inference on.
         img_size (tuple[int, int, int]): The size of the output image.
         chunk_size (int): Number of coordinate points to process in each batch to avoid OOM errors.
+        attenuation_scaling_factor (float | None): Scaling factor for attenuation values.
         device (torch.device): The device to run the model inference on.
 
     Returns:
@@ -91,6 +94,8 @@ def run_inference(
         output[i * chunk_size : (i + 1) * chunk_size] = output_chunk.cpu()
 
     # Convert to hounsfield
+    if attenuation_scaling_factor is not None:
+        output = output * attenuation_scaling_factor
     output = 1000 * (output - MU_WATER) / (MU_WATER - MU_AIR)
     output = output.clamp_min(-1024)
 

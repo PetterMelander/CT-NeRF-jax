@@ -5,11 +5,12 @@ Neural Radiance Fields for View Synthesis](https://arxiv.org/abs/2003.08934) to 
 
 Modifications include:
 - Using the trained model to construct a CT image by sampling the model in a 3D grid rather than along rays. 
-- Training the model to predict only [linear attenuation coefficients](https://en.wikipedia.org/wiki/Attenuation_coefficient) (what the authors of the orinial NeRF paper call density, $\sigma$). Colour is not needed since a CT image is just a rescaled mapping of linear attenuation coefficients and thus has no colour. The output of a ray $\mathbf{r}$ is therefore its transmittance $T(\mathbf{r})$ rather than a colour. 
+- Training the model to predict only [linear attenuation coefficients](https://en.wikipedia.org/wiki/Attenuation_coefficient) (what the authors of the orinial NeRF paper call density, $\sigma$). Colour is not needed since a CT image is just a rescaled mapping of linear attenuation coefficients and thus has no colour. The output of a ray $\mathbf{r}$ is therefore its transmittance $T(\mathbf{r})$ after passing through the subject rather than a colour. 
 - Removing the viewing angle dependent part of the original NeRF model. The angle dependent part is not needed since colours are not being predicted, and X-ray absorption does not depend on incidence angle of the ray.
-- Unlike in a normal pinhole camera, in an X-ray camera the light rays that produce the image are all parallel and orthogonal to the image plane. Additionally, each ray has a constant z value, i.e. it travels horizontally. 
-- Simplifying the calculation of the output pixel values to a modified version of the [Beer-Lambert Law](https://en.wikipedia.org/wiki/Beer%E2%80%93Lambert_law): $T\left(\mathbf{r}\right)=\frac{\ln\left(\exp\left[\sum_{i=1}^{N}{\sigma_i\delta_i}\right]+k\right)}{s}$. The logarithm and scaling parameters $s$ and $k$ were added to compensate for the fact the the X-ray image intensities had been scaled by $T_{new} = \frac{\ln\left(T_{old}+k\right)}{s}$ to enhance the contrast. The transmittance in a raw digital X-ray image is close to 0 throughout the entire body, with only minute differences visible. Scaling and taking the logarithm can greatly enhance the contrast, improving the model's ability to learn. 
+- Unlike in a normal pinhole camera, in an X-ray camera the light rays that produce the image are all parallel and orthogonal to the image plane <sup>(almost, see assumptions and simplifications below)</sup>. Additionally, each ray has a constant z value, i.e. it travels horizontally. 
+- Simplifying the calculation of the output pixel values to a modified version of the [Beer-Lambert Law](https://en.wikipedia.org/wiki/Beer%E2%80%93Lambert_law): $T\left(\mathbf{r}\right)=\frac{\ln\left(\exp\left[-\sum_{i=1}^{N}{\sigma_i\delta_i}\right]+k\right)}{s}$. The logarithm and scaling parameters $s$ and $k$ were added to compensate for the fact the the X-ray image intensities had been scaled by $T_{new} = \frac{\ln\left(T_{old}+k\right)}{s}$ to enhance the contrast. The transmittance in a raw digital X-ray image is close to 0 throughout the entire body, with only minute differences visible. Scaling and taking the logarithm can greatly enhance the contrast, improving the model's ability to learn. 
 - Implementing a fine sampling scheme focused on edges in the output of the coarse model. A PDF of $` \hat{w} _i `$ defined by $` w _i =\frac{\left |\sigma_ {i+1}-\sigma_ {i}\right|}{\delta_i}, \hat{w} _i=w _i/\sum _{j=1} ^ {N _c}{w _j} `$ was used to create this effect, which helps the fine model focus on learning where edges between tissues are located. This helps give clearly defined organ boundaries. 
+- Skriv om fler samplingstrategier
 - Skriv om aktiveringsfunktioner
 
 ## X-ray creation
@@ -76,7 +77,21 @@ Configuration of training and inference scripts is done by YAML files. Sample YA
 
 ## Results
 
-Ha med bilder!
+Two model sizes were tested: a small model, consisting of 8 layers of 128 hidden units each, and a large model, consisting of 16 layers of 384 units each. The small model achieved its best results with exponential scaling of X-rays, whereas the large model performed best with the linear scaling and logarithm-modified Beer-Lambert law. The large model got a mean absolute error of 13.8 HU per voxel and the small model 16.7 HU. As can be seen in the images below, the small model produced blurrier images contrast between tissues than the large model. Both models struggled with fine details such as the vertebrae. 
+
+<p float="left">
+  <img alt="Three frontal plane slices of a CT image, one from the source image, one from the large model and one from the small model" align="top" src="images/source_frontal.png" width="200" />
+  <img align="top" src="images/large_frontal.png" width="200" />
+  <img align="top" src="images/small_frontal.png" width="200" />
+  <figcaption>Frontal plane slices. Left to right: Source CT image, image created by a model with 16 layers of dimension 384, image created by a model with 8 layers of dimension 128.</figcaption> 
+</p>
+
+<p float="left">
+  <img alt="Three sagittal plane slices of a CT image, one from the source image, one from the large model and one from the small model" align="top" src="images/source_sagittal.png" width="200" />
+  <img align="top" src="images/large_sagittal.png" width="200" />
+  <img align="top" src="images/small_sagittal.png" width="200" />
+  <figcaption>Sagittal plane slices. Left to right: Source CT image, image created by a model with 16 layers of dimension 384, image created by a model with 8 layers of dimension 128.</figcaption> 
+</p>
 
 ## Assumptions and simplifications
 
@@ -88,4 +103,24 @@ While using CT images to generate X-ray images avoids the issue of geometric mag
 
 None of the ray sampling methods implemented are able to sample densely in the corners of the model space. This was deemed to be acceptable since real CT images are void of information outside the central cylinder, typically being padded with -1024 HU. However, if X-ray images were used that only covered a limited part of the body and therefore filled out the model space entirely, the corners would likely have low resolution or incorrect reconstruction.  
 
-## Ablation study
+## How to run it
+
+- <code>pip install -r requirements.txt</code>
+- place CT image in <code>data/ct_images</code>
+- run <code>scripts/generate_xrays.py</code>, specifying CT path and output path, as well as angles
+- modify <code>config_yamls/train_config.yaml</code> to specify training parameters
+- run <code>scripts/train.py</code>
+- update <code>inference_config.yaml</code> with correct hyperparameters and model path
+- run <code>scripts/generate_ct.py</code>
+
+## Todo list
+
+* Expand section How to run it
+* Expand section Results
+* Write a section Experiments with description of hyperparameters, etc. 
+* Describe the exponential scaling in this readme.
+* Scale input images to [0, 1]. Currently, they are in the range [-2.3, 0]. This is because the original X-rays are [0, 1], but to achieve better contrast inside the image, they are scaled and logarithm'd. After this contrast adjustment, rescaling could be performed to adjust the value range to something more suitable for NN's. 
+* Try different activation functions for the last layer. The model outputs the transmittance at each pixel. This is a value in the range [0, 1]. Currently, the model has no activation function on its output layer. However, an activation function could be used to introduce inductive bias to the model by limiting its output values, for example with a sigmoid function that limits the output to [0, 1].
+* Try different model sizes
+* Try varying batch size, learning rate, training time. Lower learning rate with larger batch size and longer training time could probably give better results
+* Test how many X-ray images are needed for good reconstruction

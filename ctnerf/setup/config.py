@@ -27,8 +27,9 @@ class TrainingConfig:
     """Configuration for the CT-NeRF model."""
 
     # Scaling
-    s: float  # scaling factor for X-ray intensities
-    k: float  # offset for X-ray intensities
+    attenuation_scaling_factor: float | None  # scaling factor to raise X-rays to the reciprocal of
+    s: float | None  # scaling factor for X-ray intensities
+    k: float | None  # offset for X-ray intensities
 
     # Training
     dataloader: DataLoader  # data loader
@@ -48,6 +49,7 @@ class TrainingConfig:
     coarse_optimizer: torch.optim.Optimizer | None  # coarse optimizer
     coarse_scaler: torch.GradScaler | None  # coarse gradient scaler
     n_coarse_samples: int  # number of coarse samples
+    plateau_ratio: float  # ratio of plateau width to standard deviation
 
     # Fine model
     fine_model: XRayModel | None  # fine model
@@ -98,8 +100,10 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         use_amp: bool. Whether to use automatic mixed precision
 
     - scaling:
-        s: float. Scaling factor
-        k: float. Offset
+        attenuation_scaling_factor: float | None. Scaling factor to raise X-ray to the reciprocal of
+        s: float | None. Scaling factor
+        k: float | None. Offset
+
 
     Args:
         config_path (Path): Path to the configuration file.
@@ -157,8 +161,9 @@ def get_training_config(config_path: Path) -> TrainingConfig:
     ct_size = [metadata["size"][0]] + metadata["size"]
 
     return TrainingConfig(
-        s=conf_dict["scaling"]["s"],
-        k=conf_dict["scaling"]["k"],
+        attenuation_scaling_factor=conf_dict["scaling"].get("attenuation_scaling_factor"),
+        s=conf_dict["scaling"].get("s"),
+        k=conf_dict["scaling"].get("k"),
         dataloader=dataloader,
         batch_size=conf_dict["training"]["batch_size"],
         loss_fn=loss_fn,
@@ -174,6 +179,7 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         coarse_optimizer=coarse_optimizer,
         coarse_scaler=coarse_scaler,
         n_coarse_samples=conf_dict["training"]["num_coarse_samples"],
+        plateau_ratio=conf_dict["training"]["plateau_ratio"],
         fine_model=fine_model,
         fine_optimizer=fine_optimizer,
         fine_scaler=fine_scaler,
@@ -188,6 +194,7 @@ def get_training_config(config_path: Path) -> TrainingConfig:
 class InferenceConfig:
     """Configuration for the CT-NeRF model."""
 
+    attenuation_scaling_factor: float | None  # scaling factor to raise X-rays to the reciprocal of
     coarse_model: XRayModel | None  # coarse model
     fine_model: XRayModel | None  # fine model
     output_path: Path  # path to save the generated CT image
@@ -207,6 +214,9 @@ def get_inference_config(config_path: Path) -> InferenceConfig:
     img_size or spacing must be specified. If both are specified, spacing takes precedence.
 
     The inference yaml config file contains the following fields:
+
+    - scaling:
+        attenuation_scaling_factor: float. Scaling factor to raise X-ray images to the reciprocal of
 
     - model_type: 'coarse' or 'fine'
 
@@ -280,6 +290,7 @@ def get_inference_config(config_path: Path) -> InferenceConfig:
     output_dir.mkdir(exist_ok=True, parents=True)
 
     return InferenceConfig(
+        attenuation_scaling_factor=conf_dict["scaling"].get("attenuation_scaling_factor"),
         coarse_model=coarse_model,
         fine_model=fine_model,
         output_path=output_dir / conf_dict["output_name"],

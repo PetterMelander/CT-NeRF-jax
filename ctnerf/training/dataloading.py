@@ -29,8 +29,9 @@ class XRayDataset(Dataset):
     def __init__(
         self,
         xray_dir: Path,
-        s: float = 1,
-        k: float = 0,
+        attenuation_scaling_factor: float | None,
+        s: float | None = 1,
+        k: float | None = 0,
         dtype: torch.dtype = torch.float32,
         *args: tuple,
         **kwargs: dict[str, Any],
@@ -43,6 +44,7 @@ class XRayDataset(Dataset):
 
         Args:
             xray_dir (Path): Directory containing X-ray image files and metadata.
+            attenuation_scaling_factor (float): Scaling factor for the attenuation values.
             s (float, optional): Scaling factor for intensity values. Defaults to 1.
             k (float, optional): Value added to intensity values before applying log. Defaults to 0.
             dtype (torch.dtype, optional): Data type for the tensors. Defaults to torch.float32.
@@ -65,7 +67,16 @@ class XRayDataset(Dataset):
         angles, intensities, pixel_indices = self._read_images(xray_dir, metadata)
 
         # Scale intensities
-        intensities = torch.log(intensities + k) / s
+        if attenuation_scaling_factor is not None and (s is not None and k is not None):
+            msg = "Both attenuation_scaling factor and s and k were set. Choose one"
+            raise ValueError(msg)
+        if attenuation_scaling_factor is not None:
+            intensities = intensities.to(torch.float64).pow(1/attenuation_scaling_factor)
+        elif s is not None and k is not None:
+            intensities = torch.log(intensities + k) / s
+        else:
+            msg = "Either attenuation_scaling_factor, or both s and k must be set"
+            raise ValueError(msg)
         self.intensities = torch.nan_to_num(intensities)  # intensity 0 gives -inf after log
 
         # Get positions and heading vectors in model space

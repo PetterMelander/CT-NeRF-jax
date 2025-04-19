@@ -1,35 +1,37 @@
-name: "precision_testing/amp_all_backends" # name of the run
+name: "scaling_test/reduced_attenuation" # name of the run
 device: "cuda:0" # device to run the model on
 
 
 data:
-  xray_dir: "test" # directory containing the X-ray images
+  xray_dir: "exp_scaling" # directory containing the X-ray images
   source_ct_path: "nrrd/2 AC_CT_TBody.nrrd" # path to the source CT image, optional
   num_workers: 8 # number of workers to use for data loading
   pin_memory: True # whether to pin memory for data loading
 
 
 checkpoint:
-  # checkpoint_dir: "coarse-only/20241020-172736" # directory to load the model checkpoint from, optional
+  # checkpoint_dir: scaling_test/reduced_attenuation/20250215-171648 # directory to load the model checkpoint from, optional
   checkpoint_interval: 1 # interval to save checkpoints
-  resume_epoch: 1 # epoch to resume training from, optional
+  # resume_epoch: 18 # epoch to resume training from, optional
 
 
 model:
   n_layers: 8 # number of layers in the model
-  layer_dim: 256 # dimension of the layers
+  layer_dim: 128 # dimension of the layers
   L: 20 # number of frequencies to use for the positional encoding
 
 
 training:
   lr: 0.0001 # learning rate
   batch_size: 4096 # batch size
-  num_coarse_samples: 192 # number of coarse samples per ray
+  num_coarse_samples: 256 # number of coarse samples per ray
+  plateau_ratio: 10 # ratio of plateau width to standard deviation
   num_fine_samples: # number of fine samples per ray, optional
   dtype: "float32" # data type of the loaded data
   use_amp: True # whether to use automatic mixed precision
 
 
 scaling:
-  s: 1 # scaling factor for intensity values
-  k: 0.1 # offset for intensity values
+  # attenuation_scaling_factor: 1 # scaling factor to raise X-ray images to the reciprocal of
+  s: 1 # scaling factor for logged intensity values
+  k: 0.1 # offset for logged intensity values
