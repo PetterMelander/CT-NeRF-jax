@@ -77,7 +77,21 @@ Configuration of training and inference scripts is done by YAML files. Sample YA
 
 ## Results
 
-Ha med bilder!
+Two model sizes were tested: a small model, consisting of 8 layers of 128 hidden units each, and a large model, consisting of 16 layers of 384 units each. The small model achieved its best results with exponential scaling of X-rays, whereas the large model performed best with the linear scaling and logarithm-modified Beer-Lambert law. The large model got a mean absolute error of 13.8 HU per voxel and the small model 16.7 HU. As can be seen in the images below, the small model produced blurrier images contrast between tissues than the large model. Both models struggled with fine details such as the vertebrae. 
+
+<p float="left">
+  <img alt="Three frontal plane slices of a CT image, one from the source image, one from the large model and one from the small model" align="top" src="images/source_frontal.png" width="200" />
+  <img align="top" src="images/large_frontal.png" width="200" />
+  <img align="top" src="images/small_frontal.png" width="200" />
+  <figcaption>Frontal plane slices. Left to right: Source CT image, image created by a model with 16 layers of dimension 384, image created by a model with 8 layers of dimension 128.</figcaption> 
+</p>
+
+<p float="left">
+  <img alt="Three sagittal plane slices of a CT image, one from the source image, one from the large model and one from the small model" align="top" src="images/source_sagittal.png" width="200" />
+  <img align="top" src="images/large_sagittal.png" width="200" />
+  <img align="top" src="images/small_sagittal.png" width="200" />
+  <figcaption>Sagittal plane slices. Left to right: Source CT image, image created by a model with 16 layers of dimension 384, image created by a model with 8 layers of dimension 128.</figcaption> 
+</p>
 
 ## Assumptions and simplifications
 
@@ -89,14 +103,6 @@ While using CT images to generate X-ray images avoids the issue of geometric mag
 
 None of the ray sampling methods implemented are able to sample densely in the corners of the model space. This was deemed to be acceptable since real CT images are void of information outside the central cylinder, typically being padded with -1024 HU. However, if X-ray images were used that only covered a limited part of the body and therefore filled out the model space entirely, the corners would likely have low resolution or incorrect reconstruction.  
 
-## Ablation study
-
-## Todo list
-
-* Rather than transform the images with logarithms, and modifying the Beer-Lambert law, simply reduce the Hounsfield values of the input images. This should give better contrast once the CT's are turned into X-rays, and will also help with precision since the pixels inside the body will have better value spread. Then, after inference, simply scale the values back to the original Hounsfield units. - IN PROGRESS
-* Scale input images to [0, 1]. Currently, they are in the range [-2.3, 0]. This is because the original X-rays are [0, 1], but to achieve better contrast inside the image, they are scaled and logarithm'd. After this contrast adjustment, rescaling could be performed to adjust the value range to something more suitable for NN's. 
-* Try different activation functions for the last layer. The model outputs the transmittance at each pixel. This is a value in the range [0, 1]. Currently, the model has no activation function on its output layer. However, an activation function could be used to introduce inductive bias to the model by limiting its output values, for example with a sigmoid function that limits the output to [0, 1].
-
 ## How to run it
 
 - <code>pip install -r requirements.txt</code>
@@ -106,3 +112,15 @@ None of the ray sampling methods implemented are able to sample densely in the c
 - run <code>scripts/train.py</code>
 - update <code>inference_config.yaml</code> with correct hyperparameters and model path
 - run <code>scripts/generate_ct.py</code>
+
+## Todo list
+
+* Expand section How to run it
+* Expand section Results
+* Write a section Experiments with description of hyperparameters, etc. 
+* Describe the exponential scaling in this readme.
+* Scale input images to [0, 1]. Currently, they are in the range [-2.3, 0]. This is because the original X-rays are [0, 1], but to achieve better contrast inside the image, they are scaled and logarithm'd. After this contrast adjustment, rescaling could be performed to adjust the value range to something more suitable for NN's. 
+* Try different activation functions for the last layer. The model outputs the transmittance at each pixel. This is a value in the range [0, 1]. Currently, the model has no activation function on its output layer. However, an activation function could be used to introduce inductive bias to the model by limiting its output values, for example with a sigmoid function that limits the output to [0, 1].
+* Try different model sizes
+* Try varying batch size, learning rate, training time. Lower learning rate with larger batch size and longer training time could probably give better results
+* Test how many X-ray images are needed for good reconstruction

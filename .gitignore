@@ -8,6 +8,7 @@
 *.nrrd
 *.pt
 *.png
+!images/*.png
 *.nii.gz
 models
 angles.txt

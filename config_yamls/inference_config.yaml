@@ -3,18 +3,18 @@
 
 "model_type": "coarse" # 'coarse' or 'fine'
 "model":
-  "n_layers": 16 # number of layers in the trained model
-  "layer_dim": 384 # dimension of the layers
+  "n_layers": 8 # number of layers in the trained model
+  "layer_dim": 128 # dimension of the layers
   "L": 20 # number of frequencies to use for the positional encoding
 
 
 "checkpoint":
-  "checkpoint_dir": "coarse-only/mae" # directory to load the model checkpoint from
-  "resume_epoch": 1 # epoch to load the model from
+  "checkpoint_dir": "scaling_test/reduced_attenuation/20250201-120019" # directory to load the model checkpoint from
+  "resume_epoch": 39 # epoch to load the model from
 
 
-"output_dir": "mae_test" # directory to save the generated CT image
-"output_name": "mae_test.nrrd" # name of the generated CT image
+"output_dir": "readme" # directory to save the generated CT image
+"output_name": "readme_small.nrrd" # name of the generated CT image
 "xray_dir": "test" # directory containing the X-ray images, optional if proper metadata is available
 
 
@@ -44,4 +44,4 @@
 "chunk_size": 65536 # number of coordinate points to process in each batch to avoid OOM errors
 
 scaling:
-  attenuation_scaling_factor: 1 # scaling factor to raise X-ray images to the reciprocal of
+  attenuation_scaling_factor: 7.5 # scaling factor to raise X-ray images to the reciprocal of
