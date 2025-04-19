@@ -193,6 +193,8 @@ def _forward_backward(
         intensity_pred = beer_lambert_law(
             attenuation_coeff_pred,
             sampling_distances,
+            conf.s,
+            conf.k,
             conf.slice_size_cm,
         )
         loss = loss_fn(intensity_pred, intensities)

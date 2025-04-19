@@ -96,7 +96,9 @@ def get_dataloader(conf_dict: dict) -> torch.utils.data.DataLoader:
     dataset = XRayDataset(
         xray_dir=get_xray_dir() / conf_dict["data"]["xray_dir"],
         dtype=get_torch_dtype(conf_dict["training"]["dtype"]),
-        attenuation_scaling_factor=conf_dict["scaling"]["attenuation_scaling_factor"],
+        attenuation_scaling_factor=conf_dict["scaling"].get("attenuation_scaling_factor"),
+        s=conf_dict["scaling"].get("s"),
+        k=conf_dict["scaling"].get("k"),
     )
 
     return torch.utils.data.DataLoader(

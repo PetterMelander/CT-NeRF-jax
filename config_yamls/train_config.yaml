@@ -32,4 +32,6 @@ training:
 
 
 scaling:
-  attenuation_scaling_factor: 1 # scaling factor to raise X-ray images to the reciprocal of
+  # attenuation_scaling_factor: 1 # scaling factor to raise X-ray images to the reciprocal of
+  s: 1 # scaling factor for logged intensity values
+  k: 0.1 # offset for logged intensity values

@@ -27,7 +27,9 @@ class TrainingConfig:
     """Configuration for the CT-NeRF model."""
 
     # Scaling
-    attenuation_scaling_factor: float  # scaling factor to raise X-ray images to the reciprocal of
+    attenuation_scaling_factor: float | None  # scaling factor to raise X-rays to the reciprocal of
+    s: float | None  # scaling factor for X-ray intensities
+    k: float | None  # offset for X-ray intensities
 
     # Training
     dataloader: DataLoader  # data loader
@@ -98,7 +100,9 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         use_amp: bool. Whether to use automatic mixed precision
 
     - scaling:
-        attenuation_scaling_factor: float. Scaling factor to raise X-ray images to the reciprocal of
+        attenuation_scaling_factor: float | None. Scaling factor to raise X-ray to the reciprocal of
+        s: float | None. Scaling factor
+        k: float | None. Offset
 
 
     Args:
@@ -157,7 +161,9 @@ def get_training_config(config_path: Path) -> TrainingConfig:
     ct_size = [metadata["size"][0]] + metadata["size"]
 
     return TrainingConfig(
-        attenuation_scaling_factor=conf_dict["scaling"]["attenuation_scaling_factor"],
+        attenuation_scaling_factor=conf_dict["scaling"].get("attenuation_scaling_factor"),
+        s=conf_dict["scaling"].get("s"),
+        k=conf_dict["scaling"].get("k"),
         dataloader=dataloader,
         batch_size=conf_dict["training"]["batch_size"],
         loss_fn=loss_fn,
@@ -188,7 +194,7 @@ def get_training_config(config_path: Path) -> TrainingConfig:
 class InferenceConfig:
     """Configuration for the CT-NeRF model."""
 
-    attenuation_scaling_factor: float  # scaling factor to raise X-ray images to the reciprocal of
+    attenuation_scaling_factor: float | None  # scaling factor to raise X-rays to the reciprocal of
     coarse_model: XRayModel | None  # coarse model
     fine_model: XRayModel | None  # fine model
     output_path: Path  # path to save the generated CT image
@@ -284,7 +290,7 @@ def get_inference_config(config_path: Path) -> InferenceConfig:
     output_dir.mkdir(exist_ok=True, parents=True)
 
     return InferenceConfig(
-        attenuation_scaling_factor=conf_dict["scaling"]["attenuation_scaling_factor"],
+        attenuation_scaling_factor=conf_dict["scaling"].get("attenuation_scaling_factor"),
         coarse_model=coarse_model,
         fine_model=fine_model,
         output_path=output_dir / conf_dict["output_name"],
