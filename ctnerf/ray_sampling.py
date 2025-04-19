@@ -4,13 +4,19 @@ import torch
 
 
 @torch.no_grad()
-def uniform_sampling(n_samples: int, batch_size: int, device: torch.device) -> torch.Tensor:
+def uniform_sampling(
+    n_samples: int,
+    batch_size: int,
+    device: torch.device,
+    **kwargs: dict,  # noqa: ARG001
+) -> torch.Tensor:
     """Sample n_samples points evenly along the ray.
 
     Args:
         n_samples (int): number of samples
         batch_size (int): batch size
         device (torch.device): device
+        **kwargs (dict): unused additional arguments
     Returns:
         torch.Tensor: shape (B, n_samples). Contains the sampled t's
 
@@ -25,28 +31,35 @@ def uniform_sampling(n_samples: int, batch_size: int, device: torch.device) -> t
     # Rescale each row to [t_min, t_max)
     uniform_samples = uniform_samples * interval_size
 
-    perturbation = (
-        torch.rand(batch_size, n_samples, device=device) * interval_size
-    )
+    perturbation = torch.rand(batch_size, n_samples, device=device) * interval_size
 
     return uniform_samples + perturbation
 
 
 @torch.no_grad()
-def cylinder_sampling(ray_bounds: torch.Tensor, n_samples: int) -> torch.Tensor:
+def cylinder_sampling(
+    n_samples: int,
+    batch_size: int,
+    device: torch.device,
+    **kwargs: dict,
+) -> torch.Tensor:
     """Sample n_samples points evenly along the ray inside the central cylinder.
 
     Args:
-        ray_bounds (torch.Tensor): shape (B, 2). Ray bounds.
         n_samples (int): number of samples
+        batch_size (int): size of the batch
+        device (torch.device): device to place tensors on
+        **kwargs (dict): dictionary containing ray_bounds (torch.Tensor)
+
     Returns:
         torch.Tensor: shape (B, n_samples). Contains the sampled t's
 
     """
+    ray_bounds = kwargs["ray_bounds"]
     interval_size = ((ray_bounds[:, 1] - ray_bounds[:, 0]) / n_samples).unsqueeze(1)
 
-    uniform_samples = torch.arange(0, n_samples, device=ray_bounds.device).repeat(
-        ray_bounds.shape[0],
+    uniform_samples = torch.arange(0, n_samples, device=device).repeat(
+        batch_size,
         1,
     )
 
@@ -63,21 +76,23 @@ def cylinder_sampling(ray_bounds: torch.Tensor, n_samples: int) -> torch.Tensor:
 @torch.no_grad()
 def plateau_sampling(
     n_samples: int,
-    plateau_ratio: float,
     batch_size: int,
     device: torch.device,
+    **kwargs: dict,
 ) -> torch.Tensor:
     """Sample n_samples along the ray using a plateau distribution beginning at 0.
 
     Args:
         n_samples (int): number of samples
-        plateau_ratio (float): ratio of plateau width to normal distribution
         batch_size (int): batch size
         device (torch.device): device
+        **kwargs (dict): additional arguments containing plateau_ratio (float)
+
     Returns:
         torch.Tensor: shape (B, n_samples). Contains the sampled t's
 
     """
+    plateau_ratio = kwargs["plateau_ratio"]
     x1 = torch.rand(batch_size, n_samples, device=device) * plateau_ratio - (plateau_ratio / 2)
     x2 = torch.randn(batch_size, n_samples, device=device)
     samples = x1 + x2
@@ -91,24 +106,27 @@ def plateau_sampling(
 
 @torch.no_grad()
 def plateau_cylinder_sampling(
-    ray_bounds: torch.Tensor,
     n_samples: int,
-    plateau_ratio: float,
+    batch_size: int,
+    device: torch.device,
+    **kwargs: dict,
 ) -> torch.Tensor:
     """Sample n_samples points along the ray using plateau sampling within the cylinder bounds.
 
     Args:
-        ray_bounds (torch.Tensor): shape (B, 2). Ray bounds.
         n_samples (int): number of samples
-        plateau_ratio (float): ratio of plateau width to standard deviation
+        batch_size (int): size of the batch
+        device (torch.device): device to place tensors on
+        **kwargs (dict): dictionary containing ray_bounds (torch.Tensor) and plateau_ratio (float)
+
     Returns:
         torch.Tensor: shape (B, n_samples). Contains the sampled t's
 
     """
-    x1 = torch.rand(ray_bounds.shape[0], n_samples, device=ray_bounds.device) * plateau_ratio - (
-        plateau_ratio / 2
-    )
-    x2 = torch.randn(ray_bounds.shape[0], n_samples, device=ray_bounds.device)
+    plateau_ratio = kwargs["plateau_ratio"]
+    ray_bounds = kwargs["ray_bounds"]
+    x1 = torch.rand(batch_size, n_samples, device=device) * plateau_ratio - (plateau_ratio / 2)
+    x2 = torch.randn(batch_size, n_samples, device=device)
     samples = x1 + x2
     samples = torch.sort(samples, dim=1)[0]
 

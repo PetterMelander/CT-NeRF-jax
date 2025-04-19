@@ -25,6 +25,7 @@ training:
   lr: 0.0001 # learning rate
   batch_size: 4096 # batch size
   num_coarse_samples: 256 # number of coarse samples per ray
+  coarse_sampling_function: "plateau_cylinder_sampling" # name of sampling function in ray_sampling.py
   plateau_ratio: 10 # ratio of plateau width to standard deviation
   num_fine_samples: # number of fine samples per ray, optional
   dtype: "float32" # data type of the loaded data

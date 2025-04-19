@@ -118,6 +118,7 @@ None of the ray sampling methods implemented are able to sample densely in the c
 * Expand section How to run it
 * Expand section Results
 * Write a section Experiments with description of hyperparameters, etc. 
+* Describe sampling functions in more detail.
 * Describe the exponential scaling in this readme.
 * Scale input images to [0, 1]. Currently, they are in the range [-2.3, 0]. This is because the original X-rays are [0, 1], but to achieve better contrast inside the image, they are scaled and logarithm'd. After this contrast adjustment, rescaling could be performed to adjust the value range to something more suitable for NN's. 
 * Try different activation functions for the last layer. The model outputs the transmittance at each pixel. This is a value in the range [0, 1]. Currently, the model has no activation function on its output layer. However, an activation function could be used to introduce inductive bias to the model by limiting its output values, for example with a sigmoid function that limits the output to [0, 1].

@@ -1,5 +1,7 @@
 """Contains various functions for computing and using rays."""
 
+from collections.abc import Callable
+
 import torch
 
 from ctnerf import ray_sampling
@@ -111,10 +113,12 @@ def _get_ray_bounds(start_pos: torch.Tensor, heading_vector: torch.Tensor) -> to
 def get_coarse_samples(
     start_pos: torch.Tensor,
     heading_vector: torch.Tensor,
-    ray_bounds: torch.Tensor,
     n_samples: int,
-    plateau_ratio: float,
-    # sampling_function: Callable[[int], torch.Tensor],
+    batch_size: int,
+    device: torch.device,
+    ray_bounds: torch.Tensor | None,
+    plateau_ratio: float | None,
+    sampling_function: Callable[[int, int, torch.device, dict], torch.Tensor],
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Get the coarse samples along the ray.
 
@@ -123,9 +127,13 @@ def get_coarse_samples(
     Args:
         start_pos (torch.Tensor): shape (B, 3). Starting position of the ray.
         heading_vector (torch.Tensor): shape (B, 3). Heading vector of the ray.
-        ray_bounds (torch.Tensor): shape (B, 2). Ray bounds.
         n_samples (int): number of samples.
+        batch_size (int): size of the batch being processed.
+        device (torch.device): device to place the tensors on.
+        ray_bounds (torch.Tensor): shape (B, 2). Ray bounds.
         plateau_ratio (float): ratio of plateau width to standard deviation.
+        sampling_function (Callable[[int, int, torch.device, dict], torch.Tensor]): function that
+            performs the sampling.
 
     Returns:
         torch.Tensor: shape (B, n_samples). t values of the sampled points.
@@ -133,7 +141,13 @@ def get_coarse_samples(
         torch.Tensor: shape (B, n_samples). Distances between adjacent samples.
 
     """
-    t_samples = ray_sampling.plateau_cylinder_sampling(ray_bounds, n_samples, plateau_ratio)
+    t_samples = sampling_function(
+        n_samples,
+        batch_size,
+        device,
+        plateau_ratio=plateau_ratio,
+        ray_bounds=ray_bounds,
+    )
     sampling_distances = get_sampling_distances(t_samples, ray_bounds)
 
     # sampled points should have shape (B, n_samples, 3)
@@ -230,7 +244,7 @@ def _create_z_rotation_matrix(angles: torch.Tensor) -> tuple[torch.Tensor, torch
 @torch.no_grad()
 def get_sampling_distances(
     t_samples: torch.Tensor,
-    ray_bounds: torch.Tensor,
+    ray_bounds: torch.Tensor | None,
 ) -> torch.Tensor:
     """Get distances between adjacent sampled points along the ray.
 
@@ -249,5 +263,8 @@ def get_sampling_distances(
 
     """
     # Append upper ray bound to end of each batch so last sample will have a distance.
-    ray_limit = torch.ones([t_samples.shape[0], 1], device=t_samples.device) * ray_bounds[:, 1:]
+    if ray_bounds is not None:
+        ray_limit = torch.ones([t_samples.shape[0], 1], device=t_samples.device) * ray_bounds[:, 1:]
+    else:
+        ray_limit = torch.ones([t_samples.shape[0], 1], device=t_samples.device) * 2
     return torch.diff(t_samples, dim=1, append=ray_limit)

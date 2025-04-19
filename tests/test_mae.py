@@ -8,13 +8,18 @@ from ctnerf.image_creation.ct_creation import run_inference, tensor_to_sitk
 from ctnerf.setup.config import get_inference_config
 from ctnerf.utils import get_config_dir, get_ct_dir
 
-
 # %%
 
 conf = get_inference_config(get_config_dir() / "inference_config.yaml")
 model = conf.coarse_model
 
-generated_ct = run_inference(model, (512, 512, 536), 4096 * 128, conf.device)
+generated_ct = run_inference(
+    model,
+    (512, 512, 536),
+    4096 * 128,
+    conf.attenuation_scaling_factor,
+    conf.device,
+)
 
 # %%
 

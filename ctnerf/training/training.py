@@ -116,9 +116,12 @@ def _coarse_step(
     coarse_sample_ts, coarse_samples, coarse_sampling_distances = get_coarse_samples(
         start_positions,
         heading_vectors,
-        ray_bounds,
         conf.n_coarse_samples,
+        conf.batch_size,
+        conf.device,
+        ray_bounds,
         conf.plateau_ratio,
+        conf.coarse_sampling_function,
     )
 
     loss, attenuation_coeff_pred = _forward_backward(

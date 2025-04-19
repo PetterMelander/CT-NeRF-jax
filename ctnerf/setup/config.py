@@ -1,5 +1,6 @@
 """Defines configurations used for training and inferencing with the CT-NeRF model."""
 
+from _collections_abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ from aim import Run
 from torch.nn import MSELoss
 from torch.utils.data import DataLoader
 
+from ctnerf import ray_sampling
 from ctnerf.model import XRayModel
 from ctnerf.utils import (
     get_ct_dir,
@@ -49,7 +51,11 @@ class TrainingConfig:
     coarse_optimizer: torch.optim.Optimizer | None  # coarse optimizer
     coarse_scaler: torch.GradScaler | None  # coarse gradient scaler
     n_coarse_samples: int  # number of coarse samples
-    plateau_ratio: float  # ratio of plateau width to standard deviation
+    plateau_ratio: float | None  # ratio of plateau width to standard deviation
+    coarse_sampling_function: Callable[
+        [int, int, torch.device, dict],
+        torch.Tensor,
+    ]  # sampling func
 
     # Fine model
     fine_model: XRayModel | None  # fine model
@@ -95,6 +101,7 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         lr: float. Learning rate
         batch_size: int. Batch size
         num_coarse_samples: int. Number of coarse samples
+        coarse_sampling_function: str. Name of coarse sampling function, defined in ray_sampling.py
         num_fine_samples: int. Number of fine samples. If None, no fine model is used
         dtype: str. Data type of the input tensors
         use_amp: bool. Whether to use automatic mixed precision
@@ -179,7 +186,11 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         coarse_optimizer=coarse_optimizer,
         coarse_scaler=coarse_scaler,
         n_coarse_samples=conf_dict["training"]["num_coarse_samples"],
-        plateau_ratio=conf_dict["training"]["plateau_ratio"],
+        coarse_sampling_function=getattr(
+            ray_sampling,
+            conf_dict["training"]["coarse_sampling_function"],
+        ),
+        plateau_ratio=conf_dict["training"].get("plateau_ratio"),
         fine_model=fine_model,
         fine_optimizer=fine_optimizer,
         fine_scaler=fine_scaler,
