@@ -80,16 +80,16 @@ Configuration of training and inference scripts is done by YAML files. Sample YA
 Two model sizes were tested: a small model, consisting of 8 layers of 128 hidden units each, and a large model, consisting of 16 layers of 384 units each. The small model achieved its best results with exponential scaling of X-rays, whereas the large model performed best with the linear scaling and logarithm-modified Beer-Lambert law. The large model got a mean absolute error of 13.8 HU per voxel and the small model 16.7 HU. As can be seen in the images below, the small model produced blurrier images contrast between tissues than the large model. Both models struggled with fine details such as the vertebrae. 
 
 <p float="left">
-  <img alt="Three frontal plane slices of a CT image, one from the source image, one from the large model and one from the small model" align="top" src="images/source_frontal.png" width="200" />
-  <img align="top" src="images/large_frontal.png" width="200" />
-  <img align="top" src="images/small_frontal.png" width="200" />
+  <img alt="Three frontal plane slices of a CT image, one from the source image, one from the large model and one from the small model" align="top" src="images/source_frontal.png" width="300" />
+  <img align="top" src="images/large_frontal.png" width="300" />
+  <img align="top" src="images/small_frontal.png" width="300" />
   <figcaption>Frontal plane slices. Left to right: Source CT image, image created by a model with 16 layers of dimension 384, image created by a model with 8 layers of dimension 128.</figcaption> 
 </p>
 
 <p float="left">
-  <img alt="Three sagittal plane slices of a CT image, one from the source image, one from the large model and one from the small model" align="top" src="images/source_sagittal.png" width="200" />
-  <img align="top" src="images/large_sagittal.png" width="200" />
-  <img align="top" src="images/small_sagittal.png" width="200" />
+  <img alt="Three sagittal plane slices of a CT image, one from the source image, one from the large model and one from the small model" align="top" src="images/source_sagittal.png" width="300" />
+  <img align="top" src="images/large_sagittal.png" width="300" />
+  <img align="top" src="images/small_sagittal.png" width="300" />
   <figcaption>Sagittal plane slices. Left to right: Source CT image, image created by a model with 16 layers of dimension 384, image created by a model with 8 layers of dimension 128.</figcaption> 
 </p>
 
