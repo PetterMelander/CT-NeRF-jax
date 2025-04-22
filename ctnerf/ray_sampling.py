@@ -1,233 +1,213 @@
 """Functions for sampling along rays."""
 
-import torch
+import jax
+import jax.numpy as jnp
 
 
-@torch.no_grad()
+# @torch.no_grad() # TODO: find jax equivalent
 def uniform_sampling(
+    rand_key: jax.Array,
     n_samples: int,
-    batch_size: int,
-    device: torch.device,
-    **kwargs: dict,  # noqa: ARG001
-) -> torch.Tensor:
+    ray_bounds: jax.Array,  # noqa: ARG001
+    plateau_ratio: float,  # noqa: ARG001
+) -> jax.Array:
     """Sample n_samples points evenly along the ray.
 
     Args:
+        rand_key (jax.Array): random key for JAX's random number generator
         n_samples (int): number of samples
-        batch_size (int): batch size
-        device (torch.device): device
-        **kwargs (dict): unused additional arguments
+        ray_bounds (jax.Array): Unused, kept for compatibility with vmap
+        plateau_ratio (float): Unused, kept for compatibility with vmap
+
     Returns:
-        torch.Tensor: shape (B, n_samples). Contains the sampled t's
+        jax.Array: shape (n_samples,). Contains the sampled t's
 
     """
     interval_size = 2 / n_samples
-
-    uniform_samples = torch.arange(0, n_samples, device=device).repeat(
-        batch_size,
-        1,
-    )
+    uniform_samples = jnp.arange(0, n_samples)
 
     # Rescale each row to [t_min, t_max)
     uniform_samples = uniform_samples * interval_size
-
-    perturbation = torch.rand(batch_size, n_samples, device=device) * interval_size
-
+    perturbation = jax.random.uniform(rand_key, n_samples) * interval_size
     return uniform_samples + perturbation
 
 
-@torch.no_grad()
+# @torch.no_grad() # TODO: find jax equivalent
 def cylinder_sampling(
+    rand_key: jax.Array,
     n_samples: int,
-    batch_size: int,
-    device: torch.device,
-    **kwargs: dict,
-) -> torch.Tensor:
+    ray_bounds: jax.Array,
+    plateau_ratio: float,  # noqa: ARG001
+) -> jax.Array:
     """Sample n_samples points evenly along the ray inside the central cylinder.
 
     Args:
+        rand_key (jax.Array): random key for JAX's random number generator
         n_samples (int): number of samples
-        batch_size (int): size of the batch
-        device (torch.device): device to place tensors on
-        **kwargs (dict): dictionary containing ray_bounds (torch.Tensor)
+        ray_bounds (jax.Array): shape (2,). Contains the min and max t values for sampling
+        plateau_ratio (float): Unused, kept for compatibility with vmap
 
     Returns:
-        torch.Tensor: shape (B, n_samples). Contains the sampled t's
+        jax.Array: shape (n_samples,). Contains the sampled t's
 
     """
-    ray_bounds = kwargs["ray_bounds"]
-    interval_size = ((ray_bounds[:, 1] - ray_bounds[:, 0]) / n_samples).unsqueeze(1)
-
-    uniform_samples = torch.arange(0, n_samples, device=device).repeat(
-        batch_size,
-        1,
-    )
+    interval_size = (ray_bounds[1] - ray_bounds[0]) / n_samples
+    uniform_samples = jnp.arange(0, n_samples)
 
     # Rescale each row to [t_min, t_max)
-    uniform_samples = uniform_samples * interval_size + ray_bounds[:, 0].unsqueeze(1)
-
-    perturbation = (
-        torch.rand(ray_bounds.shape[0], n_samples, device=ray_bounds.device) * interval_size
-    )
-
+    uniform_samples = uniform_samples * interval_size + ray_bounds[0]
+    perturbation = jax.random.uniform(rand_key, n_samples, maxval=interval_size)
     return uniform_samples + perturbation
 
 
-@torch.no_grad()
+# @torch.no_grad() # TODO: find jax equivalent
 def plateau_sampling(
+    rand_key: jax.Array,
     n_samples: int,
-    batch_size: int,
-    device: torch.device,
-    **kwargs: dict,
-) -> torch.Tensor:
+    ray_bounds: jax.Array,  # noqa: ARG001
+    plateau_ratio: float,
+) -> jax.Array:
     """Sample n_samples along the ray using a plateau distribution beginning at 0.
 
     Args:
+        rand_key (jax.Array): random key for JAX's random number generator
         n_samples (int): number of samples
-        batch_size (int): batch size
-        device (torch.device): device
-        **kwargs (dict): additional arguments containing plateau_ratio (float)
+        ray_bounds (jax.Array): Unused, kept for compatibility with vmap
+        plateau_ratio (float): ratio controlling the width of the plateau distribution
 
     Returns:
-        torch.Tensor: shape (B, n_samples). Contains the sampled t's
+        jax.Array: shape (n_samples,). Contains the sampled t's
 
     """
-    plateau_ratio = kwargs["plateau_ratio"]
-    x1 = torch.rand(batch_size, n_samples, device=device) * plateau_ratio - (plateau_ratio / 2)
-    x2 = torch.randn(batch_size, n_samples, device=device)
+    keys = jax.random.split(rand_key, 2)
+    x1 = jax.random.uniform(keys[0], n_samples) * plateau_ratio - (plateau_ratio / 2)
+    x2 = jax.random.normal(keys[1], n_samples)
     samples = x1 + x2
-    samples = torch.sort(samples, dim=1)[0]
+    samples = jnp.sort(samples, stable=False)
 
     # Rescale each row to [0, 2)
-    s_min = samples[:, 0].unsqueeze(1)
-    s_max = samples[:, -1].unsqueeze(1)
+    s_min = samples[0]
+    s_max = samples[-1]
     return (samples - s_min) / (s_max - s_min) * 2
 
 
-@torch.no_grad()
+# @torch.no_grad() # TODO: find jax equivalent
 def plateau_cylinder_sampling(
+    rand_key: jax.Array,
     n_samples: int,
-    batch_size: int,
-    device: torch.device,
-    **kwargs: dict,
-) -> torch.Tensor:
+    ray_bounds: jax.Array,
+    plateau_ratio: float,
+) -> jax.Array:
     """Sample n_samples points along the ray using plateau sampling within the cylinder bounds.
 
     Args:
+        rand_key (jax.Array): random key for JAX's random number generator
         n_samples (int): number of samples
-        batch_size (int): size of the batch
-        device (torch.device): device to place tensors on
-        **kwargs (dict): dictionary containing ray_bounds (torch.Tensor) and plateau_ratio (float)
+        ray_bounds (jax.Array): shape (2,). Contains the min and max t values for sampling
+        plateau_ratio (float): ratio controlling the width of the plateau distribution
 
     Returns:
-        torch.Tensor: shape (B, n_samples). Contains the sampled t's
+        jax.Array: shape (n_samples,). Contains the sampled t's
 
     """
-    plateau_ratio = kwargs["plateau_ratio"]
-    ray_bounds = kwargs["ray_bounds"]
-    x1 = torch.rand(batch_size, n_samples, device=device) * plateau_ratio - (plateau_ratio / 2)
-    x2 = torch.randn(batch_size, n_samples, device=device)
+    keys = jax.random.split(rand_key, 2)
+    x1 = jax.random.uniform(keys[0], n_samples) * plateau_ratio - (plateau_ratio / 2)
+    x2 = jax.random.normal(keys[1], n_samples)
     samples = x1 + x2
-    samples = torch.sort(samples, dim=1)[0]
+    samples = jnp.sort(samples, stable=False)
 
     # Rescale each row to [t_min, t_max)
-    t_min = ray_bounds[:, 0].unsqueeze(1)
-    t_max = ray_bounds[:, 1].unsqueeze(1)
-    s_min = samples[:, 0].unsqueeze(1)
-    s_max = samples[:, -1].unsqueeze(1)
+    t_min = ray_bounds[0]
+    t_max = ray_bounds[1]
+    s_min = samples[0]
+    s_max = samples[-1]
     return (samples - s_min) / (s_max - s_min) * (t_max - t_min) + t_min
 
 
-@torch.no_grad()
+# @torch.no_grad() # TODO: find jax equivalent
 def fine_sampling(
-    num_samples: int,
-    coarse_sample_values: torch.Tensor,
-    coarse_sampling_distances: torch.Tensor,
-) -> torch.Tensor:
+    rand_key: jax.Array,
+    n_samples: int,
+    coarse_sample_values: jax.Array,
+    coarse_sampling_distances: jax.Array,
+) -> jax.Array:
     """Sample n_samples points along the ray using the density based sampling from the NeRF paper.
 
     Args:
-        num_samples (int): number of samples
-        coarse_sample_values (torch.Tensor): shape (B, n_samples). Contains the output values of the
+        rand_key (jax.Array): random key for JAX's random number generation.
+        n_samples (int): number of samples
+        coarse_sample_values (jax.Array): shape (n_samples,). Contains the output values of the
             coarse model.
-        coarse_sampling_distances (torch.Tensor): shape (B, n_samples). Contains the sampling
+        coarse_sampling_distances (jax.Array): shape (n_samples,). Contains the sampling
             distances of the coarse sampling
     Returns:
-        torch.Tensor: shape (B, n_samples). Contains the sampled t's
+        jax.Array: shape (n_samples,). Contains the sampled t's
 
     """
+    keys = jax.random.split(rand_key, 2)
+
     # compute a "cdf" of the intensity found by the coarse model, accounting for sampling distances
     pdf = coarse_sample_values * coarse_sampling_distances
-    pdf = pdf / torch.sum(pdf, dim=1, keepdim=True)
-    cdf = torch.cumsum(pdf, dim=1)
-    cdf[..., -1] = 1 + 1e-5  # to avoid rounding causing index out of bounds if x is close to 1
+    pdf = pdf / jnp.sum(pdf)
+    cdf = jnp.cumsum(pdf)
+    cdf.at[-1].set(1 + 1e-5)  # to avoid rounding causing index out of bounds if x is close to 1
 
     # inverse transform sampling
     # each random x will fall between two sampling distances, lower and upper
-    x = torch.rand(coarse_sample_values.shape[0], num_samples, device=coarse_sample_values.device)
-    inds = torch.searchsorted(cdf, x, right=False)
-    cum_sampling_distances = torch.cumsum(coarse_sampling_distances, dim=1)
-    cum_sampling_distances = torch.cat(
-        [
-            torch.zeros((cum_sampling_distances.shape[0], 1), device=cum_sampling_distances.device),
-            cum_sampling_distances,
-        ],
-        dim=1,
-    )
-    lower = torch.gather(cum_sampling_distances, 1, inds)
-    upper = torch.gather(cum_sampling_distances, 1, inds + 1)
+    x = jax.random.uniform(keys[0], n_samples)
+    inds = jnp.searchsorted(cdf, x, side="left")
+    cum_sampling_distances = jnp.cumsum(coarse_sampling_distances)
+    cum_sampling_distances = jnp.concatenate([jnp.array([0]), cum_sampling_distances])
+    lower = cum_sampling_distances[inds]
+    upper = cum_sampling_distances[inds + 1]
 
     # uniformly sample between lower and upper
-    t = torch.rand(coarse_sample_values.shape[0], num_samples, device=coarse_sample_values.device)
+    t = jax.random.uniform(keys[1], n_samples)
     return lower + t * (upper - lower)
 
 
-@torch.no_grad()
+# @torch.no_grad() # TODO: find jax equivalent
 def edge_focused_fine_sampling(
-    num_samples: int,
-    coarse_sample_values: torch.Tensor,
-    coarse_sampling_distances: torch.Tensor,
-) -> torch.Tensor:
+    rand_key: jax.Array,
+    n_samples: int,
+    coarse_sample_values: jax.Array,
+    coarse_sampling_distances: jax.Array,
+) -> jax.Array:
     """Edge focused fine sampling.
 
     Sample n_samples points along the ray using a sampling strategy based on extra sampling
     around edges found by the coarse model.
 
     Args:
-        num_samples (int): number of samples
-        coarse_sample_values (torch.Tensor): shape (B, n_samples). Contains the output values of the
+        rand_key (jax.Array): random key for JAX's random number generation.
+        n_samples (int): number of samples
+        coarse_sample_values (jax.Array): shape (n_samples,). Contains the output values of the
             coarse model.
-        coarse_sampling_distances (torch.Tensor): shape (B, n_samples). Contains the sampling
+        coarse_sampling_distances (jax.Array): shape (n_samples,). Contains the sampling
             distances of the coarse model.
 
     Returns:
-        torch.Tensor: shape (B, n_samples). Contains the sampled t's
+        jax.Array: shape (n_samples,). Contains the sampled t's
 
     """
-    zeros = torch.zeros([coarse_sample_values.shape[0], 1], device=coarse_sample_values.device)
-    diff = torch.abs(torch.diff(coarse_sample_values, dim=1, append=zeros))
+    keys = jax.random.split(rand_key, 2)
 
     # compute a "cdf" of the intensity found by the coarse model, accounting for sampling distances
+    diff = jnp.abs(jnp.diff(coarse_sample_values, append=0))
     pdf = diff / coarse_sampling_distances
-    pdf = pdf / torch.sum(pdf, dim=1, keepdim=True)
-    cdf = torch.cumsum(pdf, dim=1)
-    cdf[..., -1] = 1 + 1e-5  # to avoid rounding causing index out of bounds if x is close to 1
+    pdf = pdf / jnp.sum(pdf)
+    cdf = jnp.cumsum(pdf)
+    cdf.at[-1].set(1 + 1e-5)  # to avoid rounding causing index out of bounds if x is close to 1
 
     # inverse transform sampling
     # each random x will fall between two sampling distances, lower and upper
-    x = torch.rand(coarse_sample_values.shape[0], num_samples, device=coarse_sample_values.device)
-    inds = torch.searchsorted(cdf, x, right=False)
-    cum_sampling_distances = torch.cumsum(coarse_sampling_distances, dim=1)
-    cum_sampling_distances = torch.cat(
-        [
-            torch.zeros((cum_sampling_distances.shape[0], 1), device=cum_sampling_distances.device),
-            cum_sampling_distances,
-        ],
-        dim=1,
-    )
-    lower = torch.gather(cum_sampling_distances, 1, inds)
-    upper = torch.gather(cum_sampling_distances, 1, inds + 1)
+    x = jax.random.uniform(keys[0], n_samples)
+    inds = jnp.searchsorted(cdf, x, side="left")
+    cum_sampling_distances = jnp.cumsum(coarse_sampling_distances)
+    cum_sampling_distances = jnp.concatenate([jnp.array([0]), cum_sampling_distances])
+    lower = cum_sampling_distances[inds]
+    upper = cum_sampling_distances[inds + 1]
 
     # uniformly sample between lower and upper
-    t = torch.rand(coarse_sample_values.shape[0], num_samples, device=coarse_sample_values.device)
+    t = jax.random.uniform(keys[1], n_samples)
     return lower + t * (upper - lower)
