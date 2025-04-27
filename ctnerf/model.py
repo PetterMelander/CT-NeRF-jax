@@ -1,145 +1,175 @@
 """Contains the MLP model used to generate CT images."""
 
-from typing import Any
+import jax
+import jax.numpy as jnp
+from jax.nn.initializers import truncated_normal
 
-import torch
-
-
-class ExULayer(torch.nn.Module):
-    """Exp-centered layer."""
-
-    def __init__(self, in_features: int, out_features: int) -> None:
-        """Initialize the ExULayer module.
-
-        Args:
-            in_features (int): Number of input features.
-            out_features (int): Number of output features.
-
-        """
-        super().__init__()
-        self.weight = torch.nn.Parameter(torch.empty((in_features, out_features)))
-        self.bias = torch.nn.Parameter(torch.empty(in_features))
-        self._truncated_normal_(self.weight, mean=4.0, std=0.5)
-        self._truncated_normal_(self.bias, std=0.5)
-
-    def _truncated_normal_(
-        self,
-        tensor: torch.Tensor,
-        mean: float = 0.0,
-        std: float = 1.0,
-        cutoff: float = 2.0,
-    ) -> None:
-        size = tensor.shape
-        tmp = tensor.new_empty((*size, 4)).normal_()
-        valid = (tmp < cutoff) & (tmp > -cutoff)
-        ind = valid.max(-1, keepdim=True)[1]
-        tensor.data.copy_(tmp.gather(-1, ind).squeeze(-1))
-        tensor.data.mul_(std).add_(mean)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass of the ExULayer.
-
-        Args:
-            x (torch.Tensor): Input tensor.
-
-        Returns:
-            torch.Tensor: Output tensor after applying ExU transformation.
-
-        """
-        exu = (x - self.bias) @ torch.exp(self.weight)
-        return torch.clip(exu, 0, 1)
+from ctnerf.rays import beer_lambert_law
 
 
-class XRayModel(torch.nn.Module):
-    """Class for the MLP used to generate CT images."""
+def init_params(
+    key: jax.Array,
+    n_layers: int,
+    layer_dim: int,
+    L: int,  # noqa: N803
+) -> tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]]]:
+    """Initialize the model parameters for both pre and post concatenation layers.
 
-    def __init__(
-        self,
-        n_layers: int,
-        layer_dim: int,
-        L: int,  # noqa: N803
-        *args: tuple,
-        **kwargs: dict[str, Any],
-    ) -> None:
-        """Initialize the XRayModel.
+    Args:
+        key: Random number generator key for parameter initialization.
+        n_layers: Number of layers in the model.
+        layer_dim: Dimension of each hidden layer.
+        L: Number of frequency bands for positional encoding.
 
-        Args:
-            n_layers (int): Number of layers in the model
-            layer_dim (int): Dimension of the layers
-            L (int): Number of frequencies to use for the positional encoding
-            *args: Additional positional arguments passed to the base class
-            **kwargs: Additional keyword arguments passed to the base class
+    Returns:
+        A tuple containing two lists of layer parameters:
+        - pre_concat_layers: Parameters for layers before concatenation
+        - post_concat_layers: Parameters for layers after concatenation
 
-        """
-        super().__init__(*args, **kwargs)
+    """
+    key, *subkeys = jax.random.split(key, 3)
+    input_layer = _init__linear_layer(subkeys, 6 * L, layer_dim)
 
-        self.input_layer = torch.nn.Linear(3 * 2 * L, layer_dim)
-        self.pre_concat_layers = torch.nn.ModuleList(
-            [torch.nn.Linear(layer_dim, layer_dim) for _ in range(n_layers // 2)],
-        )
-        self.middle_layer = torch.nn.Linear(layer_dim + 3 * 2 * L, layer_dim)
-        self.post_concat_layers = torch.nn.ModuleList(
-            [torch.nn.Linear(layer_dim, layer_dim) for _ in range(n_layers // 2 - 1)],
-        )
-        self.output_layer = torch.nn.Linear(layer_dim, 1)
+    pre_concat_layers = [input_layer]
+    for _ in range(n_layers // 2):
+        key, *subkeys = jax.random.split(key, 3)
+        pre_concat_layers.append(_init__linear_layer(subkeys, layer_dim, layer_dim))
 
-        self.L = L
+    key, *subkeys = jax.random.split(key, 3)
+    middle_layer = _init__linear_layer(subkeys, layer_dim + 6 * L, layer_dim)
 
-    def forward(self, coords: torch.Tensor) -> torch.Tensor:
-        """Forward pass of the model.
+    post_concat_layers = [middle_layer]
+    for _ in range(n_layers // 2 - 1):
+        key, *subkeys = jax.random.split(key, 3)
+        post_concat_layers.append(_init__linear_layer(subkeys, layer_dim, layer_dim))
 
-        Args:
-            coords (torch.Tensor): shape (B, 3). Input coordinates.
+    key, *subkeys = jax.random.split(key, 3)
+    post_concat_layers.append(_init__linear_layer(subkeys, layer_dim, 1))
 
-        Returns:
-            torch.Tensor: shape (B, 1). Output of the model.
+    return pre_concat_layers, post_concat_layers
 
-        """
-        pos_enc = self._positional_encoding(coords, self.L)
 
-        x = torch.nn.functional.relu(self.input_layer(pos_enc))
+def _init_exu_layer(keys: tuple[jax.Array], in_dim: int, out_dim: int) -> dict[str, jax.Array]:
+    w = truncated_normal(0.5)(keys[0], shape=(in_dim, out_dim)) + 4
+    b = truncated_normal(0.5)(keys[1], shape=(in_dim))
+    return {"w": w, "b": b}
 
-        for layer in self.pre_concat_layers:
-            x = torch.nn.functional.relu(layer(x))
 
-        x = torch.cat((x, pos_enc), dim=1)
-        x = torch.nn.functional.relu(self.middle_layer(x))
+def _init__linear_layer(keys: tuple[jax.Array], in_dim: int, out_dim: int) -> dict[str, jax.Array]:
+    w = jax.random.uniform(
+        keys[0],
+        shape=(out_dim, in_dim),
+        minval=-jnp.sqrt(1 / in_dim),
+        maxval=jnp.sqrt(1 / in_dim),
+    )
+    b = jax.random.uniform(
+        keys[1],
+        shape=(out_dim),
+        minval=-jnp.sqrt(1 / in_dim),
+        maxval=jnp.sqrt(1 / in_dim),
+    )
+    return {"w": w, "b": b}
 
-        for layer in self.post_concat_layers:
-            x = torch.nn.functional.relu(layer(x))
 
-        return self.output_layer(x)
+def exu(params: dict[str, jax.Array], x: jax.Array) -> jax.Array:
+    """Apply the Exp-centered Unit (ExU) transformation to the input.
 
-        # if self.training:
-        #     x += torch.randn_like(x, device=x.device) * 0.01  # noqa: ERA001
-        # return torch.nn.functional.elu(x) + 1  # noqa: ERA001
-        # return torch.nn.functional.relu(x)  # noqa: ERA001
-        # return torch.nn.functional.gelu(x)  # noqa: ERA001
-        # return torch.nn.functional.leaky_relu(x)  # noqa: ERA001
-        # return torch.nn.functional.sigmoid(x)  # noqa: ERA001
+    Args:
+        params (dict[str, jax.Array]): Dictionary containing weight ('w') and bias ('b') parameters.
+        x (jax.Array): Input array to transform.
 
-    @torch.no_grad()
-    def _positional_encoding(self, coords: torch.Tensor, L: int) -> torch.Tensor:  # noqa: N803
-        """Compute the positional encoding for the input coordinates.
+    Returns:
+        jax.Array: The transformed input after applying the ExU operation.
 
-        This function applies a positional encoding to the input coordinates using
-        sinusoidal functions of varying frequencies. The encoding is used to map
-        the input coordinates into a higher-dimensional space, which helps the
-        model to capture spatial relationships.
+    """
+    return (x - params["b"]) @ jnp.exp(params["w"])
 
-        Args:
-            coords (torch.Tensor): A tensor of shape (B, 3) representing the input
-                coordinates for which the positional encoding is to be computed.
-            L (int): The number of frequency bands to use for the encoding.
 
-        Returns:
-            torch.Tensor: A tensor of shape (B, 3 * 2 * L) containing the positional
-            encoding of the input coordinates.
+def forward(
+    params: tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]], dict],
+    coords: jax.Array,
+) -> jax.Array:
+    """Forward pass of the model.
 
-        """
-        position_enc = torch.empty(coords.shape[0], 3 * 2 * L, device=coords.device)
-        angles = torch.pow(2, torch.arange(L, device=coords.device)) * torch.pi
-        angles = angles.unsqueeze(0).unsqueeze(0) * coords.unsqueeze(-1)
-        position_enc[:, : 3 * L] = torch.sin(angles.view(coords.shape[0], -1))
-        position_enc[:, 3 * L :] = torch.cos(angles.view(coords.shape[0], -1))
-        return position_enc
+    Args:
+        params (tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]], dict):
+            tuple containing two lists of layers, the pre-concatenation layers and the
+            post-concatenation layers. Each list entry is a dict with the keys 'w' and 'b',
+            corresponding to weight and bias arrays.
+        coords (jax.Array): shape (3,). Input coordinates.
+
+    Returns:
+        jax.Array: shape (1,). Output of the model.
+
+    """
+    pre_concat_layers, post_concat_layers = params
+    L = pre_concat_layers[0]["w"].shape[1] / 6  # noqa: N806
+    pos_enc = _positional_encoding(coords, L)
+
+    x = pos_enc
+    for layer in pre_concat_layers:
+        x = jax.nn.relu(jnp.dot(layer["w"], x) + layer["b"])
+
+    x = jnp.concat([x, pos_enc])
+    for layer in post_concat_layers[:-1]:
+        x = jax.nn.relu(jnp.dot(layer["w"], x) + layer["b"])
+
+    # no relu on final layer
+    final_layer = post_concat_layers[-1]
+    return (jnp.dot(final_layer["w"], x) + final_layer["b"]).squeeze()
+
+
+forward = jax.vmap(forward, in_axes=(None, 0))
+
+
+def loss_fn(
+    params: tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]]],
+    coords: jax.Array,
+    gt: jax.Array,
+    sampling_distances: jax.Array,
+    s: float | None,
+    k: float | None,
+    slice_size_cm: float,
+) -> jax.Array:
+    """Calculate the mean squared error loss between predicted and ground truth intensities.
+
+    Args:
+        params: Model parameters consisting of pre and post concatenation layers.
+        coords: Input coordinates for the model.
+        gt: Ground truth intensity values.
+        sampling_distances: Distances between sampling points.
+        s: Scaling parameter.
+        k: Scaling parameter.
+        slice_size_cm: Size of the CT slice in centimeters.
+
+    Returns:
+        Mean squared error loss between predicted and ground truth intensities.
+
+    """
+    attenuation_preds = forward(params, coords)
+    intensity_pred = beer_lambert_law(attenuation_preds, sampling_distances, s, k, slice_size_cm)
+    return (intensity_pred - gt) ** 2
+
+
+def _positional_encoding(coords: jax.Array, L: int) -> jax.Array:  # noqa: N803
+    """Compute the positional encoding for the input coordinates.
+
+    This function applies a positional encoding to the input coordinates using
+    sinusoidal functions of varying frequencies. The encoding is used to map
+    the input coordinates into a higher-dimensional space, which helps the
+    model to capture spatial relationships.
+
+    Args:
+        coords (jax.Array): A tensor of shape (3,) representing the input
+            coordinates for which the positional encoding is to be computed.
+        L (int): The number of frequency bands to use for the encoding.
+
+    Returns:
+        jax.Array: An array of shape (6 * L,) containing the positional
+        encoding of the input coordinates.
+
+    """
+    angles = (
+        jnp.expand_dims((jnp.arange(L) ** 2 * jnp.pi), 1) * jnp.expand_dims(coords, 0)
+    ).flatten()
+    return jnp.concatenate([jnp.sin(angles), jnp.cos(angles)])

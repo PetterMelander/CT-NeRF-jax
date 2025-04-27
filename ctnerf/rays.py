@@ -1,6 +1,7 @@
 """Contains various functions for computing and using rays."""
 
 from collections.abc import Callable
+from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -42,12 +43,12 @@ def beer_lambert_law(
     return exp
 
 
-# @torch.no_grad() # TODO: find jax equivalent
+@partial(jax.vmap, in_axes=(0, 0, None))
 def get_rays(
     pixel_pos: jax.Array,
     angle: jax.Array,
     img_shape: jax.Array,
-) -> tuple[jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Get the start position, heading vector, and ray bounds defining a ray.
 
     Given the positions of a pixel in an image and the angle of the xray source, compute the start
@@ -79,7 +80,6 @@ def get_rays(
     return start_pos, heading_vector, ray_bounds
 
 
-# @torch.no_grad() # TODO: find jax equivalent
 def _get_ray_bounds(start_pos: jax.Array, heading_vector: jax.Array) -> jax.Array:
     """Get the two t values that define the bounds of the ray.
 
@@ -110,15 +110,14 @@ def _get_ray_bounds(start_pos: jax.Array, heading_vector: jax.Array) -> jax.Arra
     return jnp.array([t1, t2])
 
 
-# @torch.no_grad() # TODO: find jax equivalent
 def get_coarse_samples(
     rand_key: jax.Array,
     start_pos: jax.Array,
     heading_vector: jax.Array,
-    n_samples: int,
     ray_bounds: jax.Array | None,
+    n_samples: int,
     plateau_ratio: float | None,
-    sampling_function: Callable[[int, int, dict], jax.Array],
+    sampling_function: Callable[[jax.Array, int, jax.Array, float], jax.Array],
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Get the coarse samples along the ray.
 
@@ -128,8 +127,8 @@ def get_coarse_samples(
         rand_key (jax.Array): random key for JAX's random number generation.
         start_pos (jax.Array): shape (3,). Starting position of the ray.
         heading_vector (jax.Array): shape (3,). Heading vector of the ray.
-        n_samples (int): number of samples.
         ray_bounds (jax.Array): shape (2,). Ray bounds.
+        n_samples (int): number of samples.
         plateau_ratio (float): ratio of plateau width to standard deviation.
         sampling_function (Callable[[int, int, dict], jax.Array]): function that
             performs the sampling.
@@ -152,7 +151,6 @@ def get_coarse_samples(
     return t_samples, sampled_points, sampling_distances
 
 
-# @torch.no_grad() # TODO: find jax equivalent
 def get_fine_samples(
     rand_key: jax.Array,
     start_pos: jax.Array,
@@ -203,7 +201,6 @@ def get_fine_samples(
     return sampled_points, sampling_distances
 
 
-# @torch.no_grad() # TODO: find jax equivalent
 def _create_z_rotation_matrix(angle: jax.Array) -> tuple[jax.Array, jax.Array]:
     """Get rotation matrix for z-axis rotation and heading vector.
 
@@ -236,7 +233,6 @@ def _create_z_rotation_matrix(angle: jax.Array) -> tuple[jax.Array, jax.Array]:
     return rotation_matrix, heading_vector
 
 
-# @torch.no_grad() # TODO: find jax equivalent
 def get_sampling_distances(
     t_samples: jax.Array,
     ray_bounds: jax.Array | None,

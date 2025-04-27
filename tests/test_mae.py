@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import SimpleITK as sitk
 
-from ctnerf.image_creation.ct_creation import run_inference, tensor_to_sitk
+from ctnerf.image_creation.ct_creation import array_to_sitk, run_inference
 from ctnerf.setup.config import get_inference_config
 from ctnerf.utils import get_config_dir, get_ct_dir
 
@@ -24,7 +24,7 @@ generated_ct = run_inference(
 # %%
 
 ct_direction = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
-generated_ct = tensor_to_sitk(generated_ct, direction=ct_direction)
+generated_ct = array_to_sitk(generated_ct, direction=ct_direction)
 generated_ct = sitk.GetArrayFromImage(generated_ct)
 
 source_ct_image = sitk.ReadImage(get_ct_dir() / "nrrd" / "2 AC_CT_TBody.nrrd")

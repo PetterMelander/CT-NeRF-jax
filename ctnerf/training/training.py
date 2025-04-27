@@ -2,264 +2,192 @@
 
 from pathlib import Path
 
+import jax
+import jax.numpy as jnp
 import numpy as np
-import plotly.express as px
+import optax
 import SimpleITK as sitk
-import torch
-from aim import Figure
-from torch import GradScaler, autocast
+from aim import Image, Run
+from flax.training import checkpoints
+from PIL import Image as PILImage
 from tqdm import tqdm
 
-from ctnerf.image_creation.ct_creation import run_inference, tensor_to_sitk
-from ctnerf.model import XRayModel
-from ctnerf.rays import beer_lambert_law, get_coarse_samples, get_fine_samples
+from ctnerf import model
+from ctnerf.image_creation.ct_creation import array_to_sitk, run_inference
+from ctnerf.rays import get_coarse_samples
+from ctnerf.setup import setup_functions
 from ctnerf.setup.config import TrainingConfig, get_training_config
 
 
 def train(config_path: Path) -> None:
     """Train the model."""
     conf = get_training_config(config_path)
-
-    for epoch in range(1, 1000):
-        for start_positions, heading_vectors, intensities, ray_bounds in tqdm(conf.dataloader):
-            start_positions = start_positions.to(conf.device, dtype=conf.dtype, non_blocking=True)
-            heading_vectors = heading_vectors.to(conf.device, dtype=conf.dtype, non_blocking=True)
-            intensities = intensities.to(conf.device, dtype=conf.dtype, non_blocking=True)
-            ray_bounds = ray_bounds.to(conf.device, dtype=conf.dtype, non_blocking=True)
-
-            coarse_loss, fine_loss = _step(
-                start_positions,
-                heading_vectors,
-                intensities,
-                ray_bounds,
-                conf,
-            )
-
-            conf.tracker.track(coarse_loss.item(), name="coarse_loss")
-            if fine_loss is not None:
-                conf.tracker.track(fine_loss.item(), name="fine_loss")
-
-        _eval(
-            conf.coarse_model,
-            conf.start_epoch + epoch,
-            "coarse",
-            conf,
-        )
-
-        if conf.fine_model is not None:
-            _eval(
-                conf.fine_model,
-                conf.start_epoch + epoch,
-                "fine",
-                conf,
-            )
-
-        if epoch % conf.checkpoint_interval == 0:
-            checkpoint = {
-                "coarse_model_state_dict": conf.coarse_model.state_dict(),
-                "coarse_optimizer_state_dict": conf.coarse_optimizer.state_dict(),
-                "epoch": conf.start_epoch + epoch,
-                "run_hash": conf.tracker.hash,
-            }
-            if conf.fine_model is not None:
-                checkpoint["fine_model_state_dict"] = conf.fine_model.state_dict()
-                checkpoint["fine_optimizer_state_dict"] = conf.fine_optimizer.state_dict()
-            torch.save(checkpoint, conf.checkpoint_dir / f"{conf.start_epoch + epoch}.pt")
-
-
-@torch.compile(mode="max-autotune", disable=False)
-def _step(
-    start_positions: torch.Tensor,
-    heading_vectors: torch.Tensor,
-    intensities: torch.Tensor,
-    ray_bounds: torch.Tensor,
-    conf: TrainingConfig,
-) -> None:
-    (
-        coarse_loss,
-        coarse_sample_ts,
-        coarse_attenuation_coeff_pred,
-        coarse_sampling_distances,
-    ) = _coarse_step(
-        start_positions,
-        heading_vectors,
-        intensities,
-        ray_bounds,
-        conf,
+    key = jax.random.key(conf.sampling_seed)
+    coarse_model = setup_functions.get_model(conf)
+    optimizer, opt_state = setup_functions.get_optimizer(conf, coarse_model)
+    dataloader = setup_functions.get_dataloader(conf)
+    initial_state_dict = {
+        "params": coarse_model,
+        "opt_state": opt_state,
+        "step": 0,
+    }
+    restored_state = checkpoints.restore_checkpoint(
+        ckpt_dir=conf.checkpoint_dir,
+        target=initial_state_dict,
+        prefix="checkpoint_",
     )
+    if restored_state is not initial_state_dict:
+        coarse_model = restored_state["params"]
+        opt_state = restored_state["opt_state"]
+        start_step = restored_state["step"] + 1
+        run_hash = restored_state["run_hash"]
+    else:
+        start_step = 0
+        run_hash = ""
+    aim_run = setup_functions.get_aim_run(conf, run_hash)
 
-    if conf.fine_model is not None:
-        fine_loss = _fine_step(
+    def single_loss_fn(
+        rand_key: jax.Array,
+        params: tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]]],
+        start_positions: jax.Array,
+        heading_vectors: jax.Array,
+        intensities: jax.Array,
+        ray_bounds: jax.Array,
+    ) -> jax.Array:
+        coarse_sample_ts, coarse_samples, coarse_sampling_distances = get_coarse_samples(
+            rand_key,
             start_positions,
             heading_vectors,
-            intensities,
             ray_bounds,
-            coarse_sample_ts,
-            coarse_attenuation_coeff_pred,
-            coarse_sampling_distances,
-            conf,
+            conf.n_coarse_samples,
+            conf.plateau_ratio,
+            conf.coarse_sampling_function,
         )
-    else:
-        fine_loss = None
 
-    return coarse_loss, fine_loss
-
-
-@torch.compile(mode="max-autotune", disable=True)
-def _coarse_step(
-    start_positions: torch.Tensor,
-    heading_vectors: torch.Tensor,
-    intensities: torch.Tensor,
-    ray_bounds: torch.Tensor,
-    conf: TrainingConfig,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    coarse_sample_ts, coarse_samples, coarse_sampling_distances = get_coarse_samples(
-        start_positions,
-        heading_vectors,
-        conf.n_coarse_samples,
-        conf.batch_size,
-        conf.device,
-        ray_bounds,
-        conf.plateau_ratio,
-        conf.coarse_sampling_function,
-    )
-
-    loss, attenuation_coeff_pred = _forward_backward(
-        intensities,
-        coarse_samples,
-        coarse_sampling_distances,
-        conf.coarse_model,
-        conf.coarse_optimizer,
-        conf.coarse_scaler,
-        conf.loss_fn,
-        conf,
-    )
-
-    return (
-        loss.detach(),
-        coarse_sample_ts.detach(),
-        attenuation_coeff_pred.detach(),
-        coarse_sampling_distances.detach(),
-    )
-
-
-@torch.compile(mode="max-autotune", disable=True)
-def _fine_step(
-    start_positions: torch.Tensor,
-    heading_vectors: torch.Tensor,
-    intensities: torch.Tensor,
-    ray_bounds: torch.Tensor,
-    coarse_sample_ts: torch.Tensor,
-    attenuation_coeff_pred: torch.Tensor,
-    coarse_sampling_distances: torch.Tensor,
-    conf: TrainingConfig,
-) -> None:
-    fine_samples, fine_sampling_distances = get_fine_samples(
-        start_positions,
-        heading_vectors,
-        ray_bounds,
-        coarse_sample_ts,
-        attenuation_coeff_pred,
-        coarse_sampling_distances,
-        conf.n_fine_samples,
-    )
-
-    loss, _ = _forward_backward(
-        intensities,
-        fine_samples,
-        fine_sampling_distances,
-        conf.fine_model,
-        conf.fine_optimizer,
-        conf.fine_scaler,
-        conf.loss_fn,
-        conf,
-    )
-
-    return loss.detach()
-
-
-def _forward_backward(
-    intensities: torch.Tensor,
-    samples: torch.Tensor,
-    sampling_distances: torch.Tensor,
-    model: XRayModel,
-    optimizer: torch.optim.Optimizer,
-    scaler: GradScaler,
-    loss_fn: torch.nn.Module,
-    conf: TrainingConfig,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    model.train()
-
-    with autocast(device_type="cuda", enabled=conf.use_amp):
-        attenuation_coeff_pred = model(samples)
-        attenuation_coeff_pred = attenuation_coeff_pred.reshape(conf.batch_size, -1)
-        intensity_pred = beer_lambert_law(
-            attenuation_coeff_pred,
-            sampling_distances,
+        return model.loss_fn(
+            params,
+            coarse_samples,
+            intensities,
+            coarse_sampling_distances,
             conf.s,
             conf.k,
             conf.slice_size_cm,
         )
-        loss = loss_fn(intensity_pred, intensities)
-        loss = torch.sum(loss)
 
-    if conf.use_amp:
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-    else:
-        loss.backward()
-        optimizer.step()
+    def batch_loss_fn(
+        params: tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]]],
+        batch_rand_key: jax.Array,
+        start_positions: jax.Array,
+        heading_vectors: jax.Array,
+        intensities: jax.Array,
+        ray_bounds: jax.Array,
+    ) -> jax.Array:
+        batch_size = start_positions.shape[0]
+        keys = jax.random.split(batch_rand_key, batch_size)
 
-    optimizer.zero_grad(set_to_none=True)
+        losses = jax.vmap(single_loss_fn, in_axes=(0, None, 0, 0, 0, 0))(
+            keys,
+            params,
+            start_positions,
+            heading_vectors,
+            intensities,
+            ray_bounds,
+        )
+        return jnp.sum(losses)
 
-    return loss, attenuation_coeff_pred
+    value_and_grad_batch = jax.value_and_grad(batch_loss_fn)
+
+    @jax.jit
+    def step(
+        current_params: optax.Params,
+        current_opt_state: optax.OptState,
+        step_rand_key: jax.Array,
+        batch_start_positions: jax.Array,
+        batch_heading_vectors: jax.Array,
+        batch_intensities: jax.Array,
+        batch_ray_bounds: jax.Array,
+    ) -> tuple[jax.Array, optax.Params, optax.OptState]:
+        total_batch_loss, grad = value_and_grad_batch(
+            current_params,
+            step_rand_key,
+            batch_start_positions,
+            batch_heading_vectors,
+            batch_intensities,
+            batch_ray_bounds,
+        )
+
+        updates, next_opt_state = optimizer.update(grad, current_opt_state)
+        next_params = optax.apply_updates(current_params, updates)
+
+        return total_batch_loss, next_params, next_opt_state
+
+    for epoch in range(start_step, 10000):
+        for i, (start_positions, heading_vectors, intensities, ray_bounds) in enumerate(
+            tqdm(dataloader),
+        ):
+            key, step_key = jax.random.split(key)
+            loss, coarse_model, opt_state = step(
+                coarse_model,
+                opt_state,
+                step_key,
+                start_positions,
+                heading_vectors,
+                intensities,
+                ray_bounds,
+            )
+            if i % 100 == 0:
+                aim_run.track(loss, name="coarse_loss", step=i + epoch * len(dataloader))
+
+        _eval(
+            coarse_model,
+            aim_run,
+            "coarse",
+            conf,
+        )
+        if epoch % conf.checkpoint_interval == 0:
+            state_to_save = {
+                "params": coarse_model,
+                "opt_state": opt_state,
+                "step": epoch,
+                "run_hash": aim_run.hash,
+            }
+            checkpoints.save_checkpoint(
+                ckpt_dir=conf.checkpoint_dir,
+                target=state_to_save,
+                step=epoch,
+                prefix="checkpoint_",
+                keep=10,
+                overwrite=False,
+            )
 
 
-@torch.no_grad()
 def _eval(
-    model: torch.nn.Module,
-    epoch: int,
+    model: tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]]],
+    aim_run: Run,
     tag: str,
     conf: TrainingConfig,
 ) -> None:
-    model.eval()
-
     if conf.source_ct_path is not None:
         generated_ct = run_inference(
             model,
             conf.ct_size,
             4096 * 64,
             conf.attenuation_scaling_factor,
-            conf.device,
         )
         ct_direction = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
-        generated_ct = tensor_to_sitk(generated_ct, direction=ct_direction)
+        generated_ct = array_to_sitk(generated_ct, direction=ct_direction)
         generated_ct = sitk.GetArrayFromImage(generated_ct)
 
         source_ct_image = sitk.ReadImage(str(conf.source_ct_path))
         source_ct_image = sitk.GetArrayFromImage(source_ct_image)
 
         mae = np.mean(np.abs(generated_ct - source_ct_image))
-        conf.tracker.track(mae, name="mae", step=epoch, context={"model": tag})
+        aim_run.track(mae, name="mae", context={"model": tag})
 
-        del generated_ct
-        del source_ct_image
-
-    yv = torch.linspace(-1, 1, conf.ct_size[1])
-    zv = torch.linspace(-1, 1, conf.ct_size[2])
-    yv, zv = torch.meshgrid(yv, zv, indexing="xy")
-    coords = torch.stack([torch.zeros_like(yv), yv, zv], dim=-1)
-    coords = coords.reshape(-1, 3)
-    coords = coords.to(conf.device)
-
-    output = model(coords)
-    output = output.reshape(conf.ct_size[2], conf.ct_size[1])
-
-    fig = px.imshow(output.cpu().numpy(), color_continuous_scale="gray")
-    conf.tracker.track(Figure(fig), name="cross section", step=epoch, context={"model": tag})
-
-    del output
-    del coords
-
-    model.train()
+        ct_slice = generated_ct[:, :, generated_ct.shape[2] // 2]
+        image = PILImage.fromarray((ct_slice.astype(np.int32) + 1024).astype(np.uint32))
+        aim_run.track(
+            Image(image),
+            name="cross section",
+            context={"model": tag},
+        )

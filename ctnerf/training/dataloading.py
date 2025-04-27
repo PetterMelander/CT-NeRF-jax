@@ -6,14 +6,13 @@ from typing import Any
 import numpy as np
 import SimpleITK as sitk
 import torch
-from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from ctnerf.rays import get_rays
 from ctnerf.utils import get_dataset_metadata
 
 
-class XRayDataset(Dataset):
+class XrayDataset(torch.utils.data.Dataset):
     """Dataset class for the X-ray dataset.
 
     The dataset will contain the following attributes:
@@ -25,14 +24,13 @@ class XRayDataset(Dataset):
         rays.
     """
 
-    @torch.no_grad()
     def __init__(
         self,
         xray_dir: Path,
         attenuation_scaling_factor: float | None,
         s: float | None = 1,
         k: float | None = 0,
-        dtype: torch.dtype = torch.float32,
+        dtype: np.dtype = np.float32,
         *args: tuple,
         **kwargs: dict[str, Any],
     ) -> None:
@@ -47,7 +45,7 @@ class XRayDataset(Dataset):
             attenuation_scaling_factor (float): Scaling factor for the attenuation values.
             s (float, optional): Scaling factor for intensity values. Defaults to 1.
             k (float, optional): Value added to intensity values before applying log. Defaults to 0.
-            dtype (torch.dtype, optional): Data type for the tensors. Defaults to torch.float32.
+            dtype (np.dtype, optional): Data type for the tensors. Defaults to np.float32.
             *args: Additional positional arguments passed to the base class.
             **kwargs: Additional keyword arguments passed to the base class.
 
@@ -71,38 +69,39 @@ class XRayDataset(Dataset):
             msg = "Both attenuation_scaling factor and s and k were set. Choose one"
             raise ValueError(msg)
         if attenuation_scaling_factor is not None:
-            intensities = intensities.to(torch.float64).pow(1/attenuation_scaling_factor)
+            intensities = intensities.astype(np.float64) ** (1 / attenuation_scaling_factor)
         elif s is not None and k is not None:
-            intensities = torch.log(intensities + k) / s
+            intensities = np.log(intensities + k) / s
         else:
             msg = "Either attenuation_scaling_factor, or both s and k must be set"
             raise ValueError(msg)
-        self.intensities = torch.nan_to_num(intensities)  # intensity 0 gives -inf after log
+        self.intensities = np.nan_to_num(intensities)  # intensity 0 gives -inf after log
 
         # Get positions and heading vectors in model space
-        size_tensor = torch.tensor(xray_size)
+        size_tensor = np.array(xray_size)
         self.start_positions, self.heading_vectors, self.ray_bounds = get_rays(
             pixel_indices,
             angles,
             size_tensor,
         )
 
-        # Tensor setup
-        self.start_positions = self.start_positions.to(dtype=dtype)
-        self.heading_vectors = self.heading_vectors.to(dtype=dtype)
-        self.intensities = self.intensities.to(dtype=dtype)
-        self.ray_bounds = self.ray_bounds.to(dtype=dtype)
+        # Array setup
+        self.start_positions = np.array(self.start_positions).astype(dtype=dtype)
+        self.heading_vectors = np.array(self.heading_vectors).astype(dtype=dtype)
+        self.intensities = self.intensities.astype(dtype=dtype)
+        self.ray_bounds = np.array(self.ray_bounds).astype(dtype=dtype)
 
     def __getitem__(
-        self, index: int,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        self,
+        index: int,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Get a sample from the dataset.
 
         Args:
             index (int): Index of the sample.
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: Sample data.
+            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Sample data.
 
         """
         return (
@@ -122,8 +121,10 @@ class XRayDataset(Dataset):
         return self.len
 
     def _read_images(
-        self, train_dir: Path, metadata: dict,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self,
+        train_dir: Path,
+        metadata: dict,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Read xray images and return angles, intensities and pixel indices.
 
         Args:
@@ -131,12 +132,12 @@ class XRayDataset(Dataset):
             metadata (dict): The metadata from the dataset.
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor, torch.Tensor]: angles, intensities and pixel indices.
+            tuple[np.ndarray, np.ndarray, np.ndarray]: angles, intensities and pixel indices.
 
         """
         angles = []
-        intensities = np.ndarray(0, dtype=np.float64)
-        pixel_indices = torch.zeros(size=(0, 2))
+        intensities = np.array(0, dtype=np.float64)
+        pixel_indices = np.zeros(shape=(0, 2))
 
         for file, angle in tqdm(metadata["file_angle_map"].items(), "Loading dataset"):
             # Read image
@@ -151,14 +152,14 @@ class XRayDataset(Dataset):
             intensities = np.append(intensities, xray_intensities)
 
             # Save pixel indices corresponding to intensities and angles
-            y = torch.linspace(0, xray_size[0] - 1, xray_size[0])
-            z = torch.linspace(0, xray_size[1] - 1, xray_size[1])
-            y, z = torch.meshgrid(y, z, indexing="xy")
-            pixel_indices = torch.cat(
-                [pixel_indices, torch.stack((y, z), dim=-1).reshape(-1, 2)], dim=0,
+            y = np.linspace(0, xray_size[0] - 1, xray_size[0])
+            z = np.linspace(0, xray_size[1] - 1, xray_size[1])
+            y, z = np.meshgrid(y, z, indexing="xy")
+            pixel_indices = np.concat(
+                [pixel_indices, np.stack((y, z), axis=-1).reshape(-1, 2)],
+                axis=0,
             )
 
-        angles = torch.tensor(angles)
-        intensities = torch.tensor(intensities)
+        angles = np.array(angles)
 
         return angles, intensities, pixel_indices

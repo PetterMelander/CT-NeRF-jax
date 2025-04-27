@@ -3,9 +3,9 @@
 import json
 from pathlib import Path
 
+import jax.numpy as jnp
 import numpy as np
 import SimpleITK as sitk
-import torch
 
 
 def get_data_dir() -> Path:
@@ -106,20 +106,20 @@ def add_xray_metadata(metadata: dict, xray: sitk.Image) -> dict:
     return metadata
 
 
-def get_torch_dtype(dtype_str: str) -> torch.dtype:
-    """Get the torch dtype from a string.
+def get_dtype(dtype_str: str) -> jnp.dtype:
+    """Get the jax/np dtype from a string.
 
     Args:
-        dtype_str (str): The string representation of the torch dtype.
+        dtype_str (str): The string representation of the jax/np dtype.
 
     Returns:
-        torch.dtype: The torch dtype.
+        torch.dtype: The jax/np dtype.
 
     """
     dtypes = {
-        "bfloat16": torch.bfloat16,
-        "float16": torch.float16,
-        "float32": torch.float32,
+        "bfloat16": jnp.dtype(jnp.bfloat16),
+        "float16": jnp.dtype(jnp.float16),
+        "float32": jnp.dtype(jnp.float32),
     }
     dtype = dtypes.get(dtype_str)
     if dtype is None:

@@ -5,23 +5,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-import torch
+import jax
 import yaml
-from aim import Run
-from torch.nn import MSELoss
-from torch.utils.data import DataLoader
 
 from ctnerf import ray_sampling
-from ctnerf.model import XRayModel
 from ctnerf.utils import (
     get_ct_dir,
     get_dataset_metadata,
+    get_dtype,
     get_model_dir,
-    get_torch_dtype,
     get_xray_dir,
 )
-
-from .setup_functions import get_aim_run, get_dataloader, get_model, get_optimizer, load_checkpoint
 
 
 @dataclass(frozen=True)
@@ -34,39 +28,38 @@ class TrainingConfig:
     k: float | None  # offset for X-ray intensities
 
     # Training
-    dataloader: DataLoader  # data loader
+    learning_rate: float
+    sampling_seed: int  # seed for sampling functions
     batch_size: int  # batch size
-    loss_fn: torch.nn.Module  # loss function
     use_amp: bool  # use automatic mixed precision
-    device: torch.device  # device to run on
-    dtype: torch.dtype  # data type of input tensors
+    dtype: jax.numpy.dtype  # data type of input tensors # TODO: remove?
     checkpoint_dir: Path  # directory to save checkpoints
     checkpoint_interval: int  # interval to save checkpoints
     xray_dir: Path  # directory containing X-ray images
-    start_epoch: int  # starting epoch
-    tracker: Run  # aim tracker
+    num_workers: int  # number of dataloader workers
+
+    # Model hyperparameters
+    model: dict  # contains L, n_layers, layer_dim
+    seed: int  # seed for model initialization
 
     # Coarse model
-    coarse_model: XRayModel | None  # coarse model
-    coarse_optimizer: torch.optim.Optimizer | None  # coarse optimizer
-    coarse_scaler: torch.GradScaler | None  # coarse gradient scaler
     n_coarse_samples: int  # number of coarse samples
     plateau_ratio: float | None  # ratio of plateau width to standard deviation
-    coarse_sampling_function: Callable[
-        [int, int, torch.device, dict],
-        torch.Tensor,
+    coarse_sampling_function: Callable[ # TODO: remove?
+        [jax.Array, int, jax.Array, float],
+        jax.Array,
     ]  # sampling func
 
     # Fine model
-    fine_model: XRayModel | None  # fine model
-    fine_optimizer: torch.optim.Optimizer | None  # fine optimizer
-    fine_scaler: torch.GradScaler | None  # fine gradient scaler
     n_fine_samples: int | None  # number of fine samples
 
     # Evaluation
     ct_size: tuple[int, int, int]  # size of the CT image to create for evaluation
     slice_size_cm: float  # size of an axial slice in centimetres
     source_ct_path: Path | None  # path to the source CT image
+
+    # Documentation
+    conf_dict: dict  # The original conf dict read directly from yaml
 
 
 def get_training_config(config_path: Path) -> TrainingConfig:
@@ -89,7 +82,6 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         xray_dir: str. Directory containing the X-ray images
         source_ct_path: str. Path to the source CT image. Can be None
         num_workers: int. Number of workers to use for data loading
-        pin_memory: bool. Whether to pin memory for data loading
 
     - checkpoint:
         checkpoint_dir: str. Directory to load the model checkpoint from. If None, a new training
@@ -98,6 +90,7 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         resume_epoch: int. Epoch to load the model from
 
     - training:
+        seed: int. Seed for sampling functions
         lr: float. Learning rate
         batch_size: int. Batch size
         num_coarse_samples: int. Number of coarse samples
@@ -123,31 +116,6 @@ def get_training_config(config_path: Path) -> TrainingConfig:
     with config_path.open("r") as f:
         conf_dict = yaml.load(f, Loader=yaml.SafeLoader)
 
-    # Get coarse model
-    coarse_model = get_model(conf_dict)
-    coarse_optimizer = get_optimizer(conf_dict, coarse_model)
-    coarse_scaler = torch.GradScaler()
-
-    # Get fine model if specified
-    if conf_dict["training"].get("num_fine_samples") is not None:
-        fine_model = get_model(conf_dict)
-        fine_optimizer = get_optimizer(conf_dict, fine_model)
-        fine_scaler = torch.GradScaler()
-    else:
-        fine_model = None
-        fine_optimizer = None
-        fine_scaler = None
-
-    # Load checkpoint. If checkpoint_dir is not specified, this will be a no-op.
-    start_epoch, run_hash = load_checkpoint(
-        conf_dict,
-        coarse_model,
-        coarse_optimizer,
-        fine_model,
-        fine_optimizer,
-    )
-    run = get_aim_run(conf_dict, run_hash)
-
     # Create checkpoint directory
     if conf_dict["checkpoint"].get("checkpoint_dir") is not None:
         checkpoint_dir = get_model_dir() / conf_dict["checkpoint"]["checkpoint_dir"]
@@ -157,43 +125,34 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         )
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create dataloader and loss function
-    dataloader = get_dataloader(conf_dict)
-    loss_fn = MSELoss(reduction="none")
-
     # Get X-rays and metadata
     xray_dir = get_xray_dir() / conf_dict["data"]["xray_dir"]
     metadata = get_dataset_metadata(xray_dir)
     slice_size_cm = metadata["spacing"][0] * metadata["size"][0] / 10
-    ct_size = [metadata["size"][0]] + metadata["size"]
+    ct_size = tuple([metadata["size"][0]] + metadata["size"])
 
     return TrainingConfig(
+        conf_dict=conf_dict,
+        seed=conf_dict["model"]["seed"],
+        num_workers=conf_dict["data"]["num_workers"],
+        learning_rate=conf_dict["training"]["lr"],
         attenuation_scaling_factor=conf_dict["scaling"].get("attenuation_scaling_factor"),
         s=conf_dict["scaling"].get("s"),
         k=conf_dict["scaling"].get("k"),
-        dataloader=dataloader,
+        sampling_seed=conf_dict["training"]["seed"],
         batch_size=conf_dict["training"]["batch_size"],
-        loss_fn=loss_fn,
         use_amp=conf_dict["training"]["use_amp"],
-        device=torch.device(conf_dict["device"]),
-        dtype=get_torch_dtype(conf_dict["training"]["dtype"]),
+        dtype=get_dtype(conf_dict["training"]["dtype"]),
         checkpoint_dir=checkpoint_dir,
         checkpoint_interval=conf_dict["checkpoint"]["checkpoint_interval"],
         xray_dir=xray_dir,
-        start_epoch=start_epoch,
-        tracker=run,
-        coarse_model=coarse_model,
-        coarse_optimizer=coarse_optimizer,
-        coarse_scaler=coarse_scaler,
+        model=conf_dict["model"],
         n_coarse_samples=conf_dict["training"]["num_coarse_samples"],
         coarse_sampling_function=getattr(
             ray_sampling,
             conf_dict["training"]["coarse_sampling_function"],
         ),
         plateau_ratio=conf_dict["training"].get("plateau_ratio"),
-        fine_model=fine_model,
-        fine_optimizer=fine_optimizer,
-        fine_scaler=fine_scaler,
         n_fine_samples=conf_dict["training"].get("num_fine_samples"),
         ct_size=ct_size,
         slice_size_cm=slice_size_cm,
@@ -206,10 +165,7 @@ class InferenceConfig:
     """Configuration for the CT-NeRF model."""
 
     attenuation_scaling_factor: float | None  # scaling factor to raise X-rays to the reciprocal of
-    coarse_model: XRayModel | None  # coarse model
-    fine_model: XRayModel | None  # fine model
     output_path: Path  # path to save the generated CT image
-    device: torch.device  # device to run the model inference on
     image_size: list[int, int, int] | None  # size of the output image
     voxel_spacing: list[float, float, float] | None  # voxel spacing of the output image
     image_origin: list[float, float, float] | None  # origin of the output image
@@ -235,8 +191,6 @@ def get_inference_config(config_path: Path) -> InferenceConfig:
         n_layers: int. Number of layers in the model
         layer_dim: int. Dimension of the layers
         L: int. Number of frequencies to use for the positional encoding
-
-    - device: str. Device to run the model inference on
 
     - checkpoint:
         checkpoint_dir: str. Directory to load the model checkpoint from
@@ -272,18 +226,6 @@ def get_inference_config(config_path: Path) -> InferenceConfig:
     with config_path.open("r") as f:
         conf_dict = yaml.load(f, Loader=yaml.SafeLoader)
 
-    # Get model and load checkpoint
-    if conf_dict["model_type"] == "coarse":
-        coarse_model = get_model(conf_dict)
-        fine_model = None
-    elif conf_dict["model_type"] == "fine":
-        coarse_model = None
-        fine_model = get_model(conf_dict)
-    else:
-        msg = f"Unknown model type: {conf_dict['model']}"
-        raise ValueError(msg)
-    load_checkpoint(conf_dict, coarse_model=coarse_model, fine_model=fine_model)
-
     # Get X-ray metadata
     if "xray_dir" in conf_dict:
         xray_metadata = get_dataset_metadata(get_xray_dir() / conf_dict["xray_dir"])
@@ -302,11 +244,8 @@ def get_inference_config(config_path: Path) -> InferenceConfig:
 
     return InferenceConfig(
         attenuation_scaling_factor=conf_dict["scaling"].get("attenuation_scaling_factor"),
-        coarse_model=coarse_model,
-        fine_model=fine_model,
         output_path=output_dir / conf_dict["output_name"],
         chunk_size=conf_dict.get("chunk_size") or 4096 * 16,
-        device=conf_dict.get("device") or torch.device("cpu"),
         image_size=conf_dict.get("image_size"),
         voxel_spacing=conf_dict.get("voxel_spacing"),
         image_origin=conf_dict.get("image_origin") or [0, 0, 0],

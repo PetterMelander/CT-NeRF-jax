@@ -4,7 +4,6 @@ import jax
 import jax.numpy as jnp
 
 
-# @torch.no_grad() # TODO: find jax equivalent
 def uniform_sampling(
     rand_key: jax.Array,
     n_samples: int,
@@ -32,7 +31,6 @@ def uniform_sampling(
     return uniform_samples + perturbation
 
 
-# @torch.no_grad() # TODO: find jax equivalent
 def cylinder_sampling(
     rand_key: jax.Array,
     n_samples: int,
@@ -60,7 +58,6 @@ def cylinder_sampling(
     return uniform_samples + perturbation
 
 
-# @torch.no_grad() # TODO: find jax equivalent
 def plateau_sampling(
     rand_key: jax.Array,
     n_samples: int,
@@ -91,7 +88,6 @@ def plateau_sampling(
     return (samples - s_min) / (s_max - s_min) * 2
 
 
-# @torch.no_grad() # TODO: find jax equivalent
 def plateau_cylinder_sampling(
     rand_key: jax.Array,
     n_samples: int,
@@ -124,7 +120,6 @@ def plateau_cylinder_sampling(
     return (samples - s_min) / (s_max - s_min) * (t_max - t_min) + t_min
 
 
-# @torch.no_grad() # TODO: find jax equivalent
 def fine_sampling(
     rand_key: jax.Array,
     n_samples: int,
@@ -166,7 +161,6 @@ def fine_sampling(
     return lower + t * (upper - lower)
 
 
-# @torch.no_grad() # TODO: find jax equivalent
 def edge_focused_fine_sampling(
     rand_key: jax.Array,
     n_samples: int,

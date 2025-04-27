@@ -19,9 +19,11 @@ model:
   n_layers: 8 # number of layers in the model
   layer_dim: 128 # dimension of the layers
   L: 20 # number of frequencies to use for the positional encoding
+  seed: 42 # seed for model initialization
 
 
 training:
+  seed: 0 # seed for sampling functions
   lr: 0.0001 # learning rate
   batch_size: 4096 # batch size
   num_coarse_samples: 256 # number of coarse samples per ray

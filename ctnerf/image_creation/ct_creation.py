@@ -1,16 +1,18 @@
 """Functions for generating CT images from a trained model."""
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import SimpleITK as sitk
-import torch
 from tqdm import tqdm
 
 from ctnerf.constants import MU_AIR, MU_WATER
-from ctnerf.model import XRayModel
+from ctnerf.model import forward
 from ctnerf.setup.config import InferenceConfig
 
+forward_fn = jax.jit(forward)
 
-@torch.no_grad()
+
 def generate_ct(conf: InferenceConfig) -> None:
     """Generate a CT image from a trained model.
 
@@ -41,9 +43,8 @@ def generate_ct(conf: InferenceConfig) -> None:
         image_size,
         conf.chunk_size,
         conf.attenuation_scaling_factor,
-        conf.device,
     )
-    ct_image = tensor_to_sitk(
+    ct_image = array_to_sitk(
         output,
         conf.xray_metadata,
         conf.image_direction,
@@ -54,61 +55,53 @@ def generate_ct(conf: InferenceConfig) -> None:
     sitk.WriteImage(ct_image, conf.output_path)
 
 
-@torch.no_grad()
 def run_inference(
-    model: XRayModel,
+    model: tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]]],
     img_size: tuple[int, int, int],
     chunk_size: int,
     attenuation_scaling_factor: float | None,
-    device: torch.device,
-) -> torch.Tensor:
+) -> np.ndarray:
     """Run inference on the model.
 
     Args:
-        model (XRayModel): The model to run inference on.
+        model (tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]]]): The model to run
+            inference on.
         img_size (tuple[int, int, int]): The size of the output image.
         chunk_size (int): Number of coordinate points to process in each batch to avoid OOM errors.
         attenuation_scaling_factor (float | None): Scaling factor for attenuation values.
-        device (torch.device): The device to run the model inference on.
 
     Returns:
-        torch.Tensor: The output image.
+        np.ndarray: The output image.
 
     """
-    model.eval()
-
     # Generate coordinates
-    x = torch.linspace(-1, 1, img_size[0])
-    y = torch.linspace(-1, 1, img_size[1])
-    z = torch.linspace(-1, 1, img_size[2])
-    coords = torch.stack(torch.meshgrid((x, y, z), indexing="xy"), dim=-1)
-    coords = coords.view(-1, 3)
+    x = np.linspace(-1, 1, img_size[0])
+    y = np.linspace(-1, 1, img_size[1])
+    z = np.linspace(-1, 1, img_size[2])
+    coords = np.stack(np.meshgrid(x, y, z, indexing="xy"), axis=-1)
+    coords = coords.reshape(-1, 3)
 
     # To avoid oom, inference is done in batches and result stored on cpu
-    output = torch.empty(len(coords), device=torch.device("cpu"))
-    coords = coords.split(chunk_size, dim=0)
+    output = np.empty(len(coords))
+    coords = np.split(coords, coords.shape[0] / chunk_size, axis=0)
     for i, chunk in enumerate(tqdm(coords, desc="Generating", total=len(coords), leave=False)):
-        chunk = chunk.to(device)
-        output_chunk = model(chunk)
-        output_chunk = output_chunk.view(-1)
-        output[i * chunk_size : (i + 1) * chunk_size] = output_chunk.cpu()
+        chunk = jnp.array(chunk)
+        output_chunk = forward_fn(model, chunk)
+        output[i * chunk_size : (i + 1) * chunk_size] = output_chunk.reshape(-1)
 
     # Convert to hounsfield
     if attenuation_scaling_factor is not None:
         output = output * attenuation_scaling_factor
     output = 1000 * (output - MU_WATER) / (MU_WATER - MU_AIR)
-    output = output.clamp_min(-1024)
+    output = np.maximum(output, -1024)
 
     # Reshape and permute to get correct orientation
     output = output.reshape(img_size[0], img_size[1], img_size[2])
-    output = torch.permute(output, (2, 0, 1))
-
-    model.train()
-    return output
+    return np.transpose(output, (2, 0, 1))
 
 
-def tensor_to_sitk(
-    image_tensor: torch.Tensor,
+def array_to_sitk(
+    image_array: np.ndarray,
     metadata: dict | None = None,
     direction: tuple[float] | None = None,
     origin: tuple[float, float, float] | None = None,
@@ -117,7 +110,7 @@ def tensor_to_sitk(
     """Convert a tensor to a sitk image.
 
     Args:
-        image_tensor (torch.Tensor): The tensor to convert to a sitk image.
+        image_array (np.ndarray): The tensor to convert to a sitk image.
         metadata (dict, optional): Metadata to add to the image. Defaults to None.
         direction (tuple[float], optional): Direction of the image. Defaults to None.
         origin (tuple[float, float, float], optional): Origin of the image. Defaults to None.
@@ -127,7 +120,7 @@ def tensor_to_sitk(
         sitk.Image: The sitk image.
 
     """
-    ct_array = image_tensor.numpy().astype(np.int16)
+    ct_array = image_array.astype(np.int16)
     ct_image = sitk.GetImageFromArray(ct_array)
 
     if direction is not None:
