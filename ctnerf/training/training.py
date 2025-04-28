@@ -4,6 +4,7 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+import jmp
 import numpy as np
 import optax
 import SimpleITK as sitk
@@ -22,6 +23,8 @@ from ctnerf.setup.config import TrainingConfig, get_training_config
 def train(config_path: Path) -> None:
     """Train the model."""
     conf = get_training_config(config_path)
+    policy = setup_functions.get_dtype_policy(conf)
+    scaler = setup_functions.get_loss_scaler(conf)
     key = jax.random.key(conf.sampling_seed)
     coarse_model = setup_functions.get_model(conf)
     optimizer, opt_state = setup_functions.get_optimizer(conf, coarse_model)
@@ -72,6 +75,7 @@ def train(config_path: Path) -> None:
             conf.s,
             conf.k,
             conf.slice_size_cm,
+            policy,
         )
 
     def batch_loss_fn(
@@ -81,6 +85,7 @@ def train(config_path: Path) -> None:
         heading_vectors: jax.Array,
         intensities: jax.Array,
         ray_bounds: jax.Array,
+        scaler: jmp.LossScale,
     ) -> jax.Array:
         batch_size = start_positions.shape[0]
         keys = jax.random.split(batch_rand_key, batch_size)
@@ -93,40 +98,48 @@ def train(config_path: Path) -> None:
             intensities,
             ray_bounds,
         )
-        return jnp.sum(losses)
+        return scaler.scale(jnp.sum(losses))
 
     value_and_grad_batch = jax.value_and_grad(batch_loss_fn)
 
     @jax.jit
     def step(
-        current_params: optax.Params,
-        current_opt_state: optax.OptState,
+        params: optax.Params,
+        opt_state: optax.OptState,
         step_rand_key: jax.Array,
         batch_start_positions: jax.Array,
         batch_heading_vectors: jax.Array,
         batch_intensities: jax.Array,
         batch_ray_bounds: jax.Array,
+        scaler: jmp.LossScale,
     ) -> tuple[jax.Array, optax.Params, optax.OptState]:
-        total_batch_loss, grad = value_and_grad_batch(
-            current_params,
+        total_batch_loss, grads = value_and_grad_batch(
+            params,
             step_rand_key,
             batch_start_positions,
             batch_heading_vectors,
             batch_intensities,
             batch_ray_bounds,
+            scaler,
         )
+        total_batch_loss, grads = scaler.unscale((total_batch_loss, grads))
+        grads_finite = jmp.all_finite(grads)
+        next_scaler = scaler.adjust(grads_finite)
+        updates, next_opt_state = optimizer.update(grads, opt_state)
+        next_params = optax.apply_updates(params, updates)
+        next_params, next_opt_state = jmp.select_tree(
+            grads_finite,
+            (next_params, next_opt_state),
+            (params, opt_state))
 
-        updates, next_opt_state = optimizer.update(grad, current_opt_state)
-        next_params = optax.apply_updates(current_params, updates)
-
-        return total_batch_loss, next_params, next_opt_state
+        return total_batch_loss, next_params, next_opt_state, next_scaler
 
     for epoch in range(start_step, 10000):
         for i, (start_positions, heading_vectors, intensities, ray_bounds) in enumerate(
             tqdm(dataloader),
         ):
             key, step_key = jax.random.split(key)
-            loss, coarse_model, opt_state = step(
+            loss, coarse_model, opt_state, scaler = step(
                 coarse_model,
                 opt_state,
                 step_key,
@@ -134,6 +147,7 @@ def train(config_path: Path) -> None:
                 heading_vectors,
                 intensities,
                 ray_bounds,
+                scaler,
             )
             if i % 100 == 0:
                 aim_run.track(loss, name="coarse_loss", step=i + epoch * len(dataloader))

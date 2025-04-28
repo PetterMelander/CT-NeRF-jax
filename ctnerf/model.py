@@ -2,6 +2,7 @@
 
 import jax
 import jax.numpy as jnp
+import jmp
 from jax.nn.initializers import truncated_normal
 
 from ctnerf.rays import beer_lambert_law
@@ -88,6 +89,7 @@ def exu(params: dict[str, jax.Array], x: jax.Array) -> jax.Array:
 def forward(
     params: tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]], dict],
     coords: jax.Array,
+    policy: jmp.Policy,
 ) -> jax.Array:
     """Forward pass of the model.
 
@@ -97,29 +99,33 @@ def forward(
             post-concatenation layers. Each list entry is a dict with the keys 'w' and 'b',
             corresponding to weight and bias arrays.
         coords (jax.Array): shape (3,). Input coordinates.
+        policy (jmp.Policy): Mixed precision policy for type casting.
 
     Returns:
         jax.Array: shape (1,). Output of the model.
 
     """
+    coords = policy.cast_to_compute(coords)
     pre_concat_layers, post_concat_layers = params
     L = pre_concat_layers[0]["w"].shape[1] / 6  # noqa: N806
-    pos_enc = _positional_encoding(coords, L)
+    pos_enc = _positional_encoding(coords, L, policy)
 
     x = pos_enc
     for layer in pre_concat_layers:
+        layer = policy.cast_to_compute(layer)
         x = jax.nn.relu(jnp.dot(layer["w"], x) + layer["b"])
 
     x = jnp.concat([x, pos_enc])
     for layer in post_concat_layers[:-1]:
+        layer = policy.cast_to_compute(layer)
         x = jax.nn.relu(jnp.dot(layer["w"], x) + layer["b"])
 
     # no relu on final layer
-    final_layer = post_concat_layers[-1]
-    return (jnp.dot(final_layer["w"], x) + final_layer["b"]).squeeze()
+    final_layer = policy.cast_to_compute(post_concat_layers[-1])
+    return policy.cast_to_output((jnp.dot(final_layer["w"], x) + final_layer["b"]).squeeze())
 
 
-forward = jax.vmap(forward, in_axes=(None, 0))
+forward = jax.vmap(forward, in_axes=(None, 0, None))
 
 
 def loss_fn(
@@ -130,6 +136,7 @@ def loss_fn(
     s: float | None,
     k: float | None,
     slice_size_cm: float,
+    policy: jmp.Policy,
 ) -> jax.Array:
     """Calculate the mean squared error loss between predicted and ground truth intensities.
 
@@ -141,17 +148,18 @@ def loss_fn(
         s: Scaling parameter.
         k: Scaling parameter.
         slice_size_cm: Size of the CT slice in centimeters.
+        policy (jmp.Policy): Mixed precision policy for type casting.
 
     Returns:
         Mean squared error loss between predicted and ground truth intensities.
 
     """
-    attenuation_preds = forward(params, coords)
+    attenuation_preds = forward(params, coords, policy)
     intensity_pred = beer_lambert_law(attenuation_preds, sampling_distances, s, k, slice_size_cm)
     return (intensity_pred - gt) ** 2
 
 
-def _positional_encoding(coords: jax.Array, L: int) -> jax.Array:  # noqa: N803
+def _positional_encoding(coords: jax.Array, L: int, policy: jmp.Policy) -> jax.Array:  # noqa: N803
     """Compute the positional encoding for the input coordinates.
 
     This function applies a positional encoding to the input coordinates using
@@ -163,6 +171,7 @@ def _positional_encoding(coords: jax.Array, L: int) -> jax.Array:  # noqa: N803
         coords (jax.Array): A tensor of shape (3,) representing the input
             coordinates for which the positional encoding is to be computed.
         L (int): The number of frequency bands to use for the encoding.
+        policy (jmp.Policy): Mixed precision policy for type casting.
 
     Returns:
         jax.Array: An array of shape (6 * L,) containing the positional
@@ -170,6 +179,7 @@ def _positional_encoding(coords: jax.Array, L: int) -> jax.Array:  # noqa: N803
 
     """
     angles = (
-        jnp.expand_dims((jnp.arange(L) ** 2 * jnp.pi), 1) * jnp.expand_dims(coords, 0)
+        jnp.expand_dims((jnp.arange(L, dtype=policy.compute_dtype) ** 2 * jnp.pi), 1)
+        * jnp.expand_dims(coords, 0)
     ).flatten()
     return jnp.concatenate([jnp.sin(angles), jnp.cos(angles)])

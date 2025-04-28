@@ -2,6 +2,7 @@
 
 import jax
 import jax.numpy as jnp
+import jmp
 import numpy as np
 import SimpleITK as sitk
 from tqdm import tqdm
@@ -10,7 +11,7 @@ from ctnerf.constants import MU_AIR, MU_WATER
 from ctnerf.model import forward
 from ctnerf.setup.config import InferenceConfig
 
-forward_fn = jax.jit(forward)
+forward_jitted = jax.jit(forward, static_argnums=(2,))
 
 
 def generate_ct(conf: InferenceConfig) -> None:
@@ -86,7 +87,11 @@ def run_inference(
     coords = np.split(coords, coords.shape[0] / chunk_size, axis=0)
     for i, chunk in enumerate(tqdm(coords, desc="Generating", total=len(coords), leave=False)):
         chunk = jnp.array(chunk)
-        output_chunk = forward_fn(model, chunk)
+        output_chunk = forward_jitted(
+            model,
+            chunk,
+            jmp.Policy(jnp.float32, jnp.float32, jnp.float32),
+        )
         output[i * chunk_size : (i + 1) * chunk_size] = output_chunk.reshape(-1)
 
     # Convert to hounsfield

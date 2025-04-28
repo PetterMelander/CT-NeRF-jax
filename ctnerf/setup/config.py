@@ -32,7 +32,7 @@ class TrainingConfig:
     sampling_seed: int  # seed for sampling functions
     batch_size: int  # batch size
     use_amp: bool  # use automatic mixed precision
-    dtype: jax.numpy.dtype  # data type of input tensors # TODO: remove?
+    dtypes: dict[str, jax.numpy.dtype]  # data type of params, compute, and output
     checkpoint_dir: Path  # directory to save checkpoints
     checkpoint_interval: int  # interval to save checkpoints
     xray_dir: Path  # directory containing X-ray images
@@ -45,7 +45,7 @@ class TrainingConfig:
     # Coarse model
     n_coarse_samples: int  # number of coarse samples
     plateau_ratio: float | None  # ratio of plateau width to standard deviation
-    coarse_sampling_function: Callable[ # TODO: remove?
+    coarse_sampling_function: Callable[  # TODO: remove?
         [jax.Array, int, jax.Array, float],
         jax.Array,
     ]  # sampling func
@@ -104,6 +104,11 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         s: float | None. Scaling factor
         k: float | None. Offset
 
+    - dtypes:
+        param_dtype: str. Should be float32, float16, or bfloat16.
+        compute_dtype: str. Should be float32, float16, or bfloat16.
+        output_dtype: str. Should be float32, float16, or bfloat16.
+
 
     Args:
         config_path (Path): Path to the configuration file.
@@ -131,6 +136,8 @@ def get_training_config(config_path: Path) -> TrainingConfig:
     slice_size_cm = metadata["spacing"][0] * metadata["size"][0] / 10
     ct_size = tuple([metadata["size"][0]] + metadata["size"])
 
+    dtypes = {key: get_dtype(item) for key, item in conf_dict["dtypes"].items()}
+
     return TrainingConfig(
         conf_dict=conf_dict,
         seed=conf_dict["model"]["seed"],
@@ -142,7 +149,7 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         sampling_seed=conf_dict["training"]["seed"],
         batch_size=conf_dict["training"]["batch_size"],
         use_amp=conf_dict["training"]["use_amp"],
-        dtype=get_dtype(conf_dict["training"]["dtype"]),
+        dtypes=dtypes,
         checkpoint_dir=checkpoint_dir,
         checkpoint_interval=conf_dict["checkpoint"]["checkpoint_interval"],
         xray_dir=xray_dir,

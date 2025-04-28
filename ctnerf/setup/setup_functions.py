@@ -1,6 +1,7 @@
 """Functions for setting up the CT-NeRF model."""
 
 import jax
+import jmp
 import numpy as np
 import optax
 from aim import Run
@@ -65,7 +66,6 @@ def get_dataloader(conf: TrainingConfig) -> DataLoader:
     """
     dataset = XrayDataset(
         xray_dir=get_xray_dir() / conf.xray_dir,
-        dtype=conf.dtype,
         attenuation_scaling_factor=conf.attenuation_scaling_factor,
         s=conf.s,
         k=conf.k,
@@ -85,6 +85,35 @@ def get_dataloader(conf: TrainingConfig) -> DataLoader:
         drop_last=True,
         prefetch_factor=4,
     )
+
+
+def get_dtype_policy(conf: TrainingConfig) -> jmp.Policy:
+    """Get the dtype policy for mixed precision training.
+
+    Args:
+        conf (TrainingConfig): The configuration dataclass.
+
+    Returns:
+        (jmp.Policy): The mixed precision policy.
+
+    """
+    return jmp.Policy(**conf.dtypes)
+
+
+def get_loss_scaler(conf: TrainingConfig) -> jmp.LossScale:
+    """Get the loss scaler for mixed precision training.
+
+    Args:
+        conf (TrainingConfig): The configuration dataclass.
+
+    Returns:
+        (jmp.LossScale): The loss scaler for mixed precision training.
+
+    """
+    dtypes = conf.dtypes
+    if dtypes["compute_dtype"] == dtypes["output_dtype"]:
+        return jmp.NoOpLossScale()
+    return jmp.DynamicLossScale(jax.numpy.asarray(2.**15))
 
 
 def get_aim_run(conf: TrainingConfig, run_hash: str) -> Run:

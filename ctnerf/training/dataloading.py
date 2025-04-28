@@ -30,7 +30,6 @@ class XrayDataset(torch.utils.data.Dataset):
         attenuation_scaling_factor: float | None,
         s: float | None = 1,
         k: float | None = 0,
-        dtype: np.dtype = np.float32,
         *args: tuple,
         **kwargs: dict[str, Any],
     ) -> None:
@@ -86,10 +85,10 @@ class XrayDataset(torch.utils.data.Dataset):
         )
 
         # Array setup
-        self.start_positions = np.array(self.start_positions).astype(dtype=dtype)
-        self.heading_vectors = np.array(self.heading_vectors).astype(dtype=dtype)
-        self.intensities = self.intensities.astype(dtype=dtype)
-        self.ray_bounds = np.array(self.ray_bounds).astype(dtype=dtype)
+        self.start_positions = np.array(self.start_positions).astype(np.float32)
+        self.heading_vectors = np.array(self.heading_vectors).astype(np.float32)
+        self.intensities = self.intensities.astype(np.float32)
+        self.ray_bounds = np.array(self.ray_bounds).astype(np.float32)
 
     def __getitem__(
         self,
