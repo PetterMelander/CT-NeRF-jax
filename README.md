@@ -1,7 +1,7 @@
 # CT-NeRF
 
 This is a private project started by me during the fall of 2024. It aims to use a modified version of the the work presented in [NeRF: Representing Scenes as
-Neural Radiance Fields for View Synthesis](https://arxiv.org/abs/2003.08934) to construct a CT image from a series of X-ray (projectional radiography) images from different angles. 
+Neural Radiance Fields for View Synthesis](https://arxiv.org/abs/2003.08934) to construct a CT image from a series of X-ray (projectional radiography) images from different angles. During the spring of 2025, it was modified to use JAX instead of PyTorch, as a learning exercise.
 
 Modifications include:
 - Using the trained model to construct a CT image by sampling the model in a 3D grid rather than along rays. 
