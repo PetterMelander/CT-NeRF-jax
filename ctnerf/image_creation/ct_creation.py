@@ -5,10 +5,12 @@ import jax.numpy as jnp
 import jmp
 import numpy as np
 import SimpleITK as sitk
+from flax.training import checkpoints
 from tqdm import tqdm
 
 from ctnerf.constants import MU_AIR, MU_WATER
 from ctnerf.model import forward
+from ctnerf.setup import setup_functions
 from ctnerf.setup.config import InferenceConfig
 
 forward_jitted = jax.jit(forward, static_argnums=(2,))
@@ -24,6 +26,16 @@ def generate_ct(conf: InferenceConfig) -> None:
     # Define image size and spacing, giving x the same value as y
     original_size = [conf.xray_metadata["size"][0]] + conf.xray_metadata["size"]
     original_spacing = [conf.xray_metadata["spacing"][0]] + conf.xray_metadata["spacing"]
+    coarse_model = setup_functions.get_model(conf)
+    initial_state_dict = {
+        "params": coarse_model,
+    }
+    restored_state = checkpoints.restore_checkpoint(
+        ckpt_dir=conf.checkpoint_dir,
+        target=initial_state_dict,
+        prefix="checkpoint_",
+    )
+    coarse_model = restored_state["params"]
 
     # Determine image size and spacing
     if conf.voxel_spacing is not None:
@@ -40,7 +52,7 @@ def generate_ct(conf: InferenceConfig) -> None:
         image_size = conf.image_size
 
     output = run_inference(
-        conf.fine_model or conf.coarse_model,
+        coarse_model,
         image_size,
         conf.chunk_size,
         conf.attenuation_scaling_factor,
