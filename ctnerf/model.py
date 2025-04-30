@@ -178,8 +178,10 @@ def _positional_encoding(coords: jax.Array, L: int, policy: jmp.Policy) -> jax.A
         encoding of the input coordinates.
 
     """
-    angles = (
-        jnp.expand_dims((jnp.arange(L, dtype=policy.compute_dtype) ** 2 * jnp.pi), 1)
-        * jnp.expand_dims(coords, 0)
-    ).flatten()
+    dtype = (
+        jnp.float32 if policy.compute_dtype == jnp.float16 else policy.compute_dtype
+    )  # float16 will overflow if L >= 15
+    freq_bands = jnp.power(2.0, jnp.arange(L, dtype=dtype)) * jnp.pi
+    angles = jnp.expand_dims(coords, axis=-1) * jnp.expand_dims(freq_bands, axis=0)
+    angles = policy.cast_to_compute(angles.reshape(-1))
     return jnp.concatenate([jnp.sin(angles), jnp.cos(angles)])
