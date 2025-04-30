@@ -69,6 +69,7 @@ def get_dataloader(conf: TrainingConfig) -> DataLoader:
         attenuation_scaling_factor=conf.attenuation_scaling_factor,
         s=conf.s,
         k=conf.k,
+        dtype=conf.dtypes["input_dtype"],
     )
 
     def numpy_collate(

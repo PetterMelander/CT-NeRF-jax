@@ -16,11 +16,11 @@ class XrayDataset(torch.utils.data.Dataset):
     """Dataset class for the X-ray dataset.
 
     The dataset will contain the following attributes:
-    - start_positions: A tensor of shape (N, 3) containing the starting positions of the rays.
-    - heading_vectors: A tensor of shape (N, 3) containing the heading vectors of the rays.
-    - intensities: A tensor of shape (N,) containing the intensities of the pixels associated with
+    - start_positions: An array of shape (N, 3) containing the starting positions of the rays.
+    - heading_vectors: An array of shape (N, 3) containing the heading vectors of the rays.
+    - intensities: An array of shape (N,) containing the intensities of the pixels associated with
         the rays.
-    - ray_bounds: A tensor of shape (N, 2) containing the two t values that define the bounds of the
+    - ray_bounds: An array of shape (N, 2) containing the two t values that define the bounds of the
         rays.
     """
 
@@ -28,8 +28,9 @@ class XrayDataset(torch.utils.data.Dataset):
         self,
         xray_dir: Path,
         attenuation_scaling_factor: float | None,
-        s: float | None = 1,
-        k: float | None = 0,
+        s: float | None,
+        k: float | None,
+        dtype: np.dtype,
         *args: tuple,
         **kwargs: dict[str, Any],
     ) -> None:
@@ -44,7 +45,7 @@ class XrayDataset(torch.utils.data.Dataset):
             attenuation_scaling_factor (float): Scaling factor for the attenuation values.
             s (float, optional): Scaling factor for intensity values. Defaults to 1.
             k (float, optional): Value added to intensity values before applying log. Defaults to 0.
-            dtype (np.dtype, optional): Data type for the tensors. Defaults to np.float32.
+            dtype (np.dtype, optional): Data type for the arrays. Defaults to np.float32.
             *args: Additional positional arguments passed to the base class.
             **kwargs: Additional keyword arguments passed to the base class.
 
@@ -77,18 +78,18 @@ class XrayDataset(torch.utils.data.Dataset):
         self.intensities = np.nan_to_num(intensities)  # intensity 0 gives -inf after log
 
         # Get positions and heading vectors in model space
-        size_tensor = np.array(xray_size)
+        size_array = np.array(xray_size)
         self.start_positions, self.heading_vectors, self.ray_bounds = get_rays(
             pixel_indices,
             angles,
-            size_tensor,
+            size_array,
         )
 
         # Array setup
-        self.start_positions = np.array(self.start_positions).astype(np.float32)
-        self.heading_vectors = np.array(self.heading_vectors).astype(np.float32)
-        self.intensities = self.intensities.astype(np.float32)
-        self.ray_bounds = np.array(self.ray_bounds).astype(np.float32)
+        self.start_positions = np.array(self.start_positions).astype(dtype)
+        self.heading_vectors = np.array(self.heading_vectors).astype(dtype)
+        self.intensities = self.intensities.astype(dtype)
+        self.ray_bounds = np.array(self.ray_bounds).astype(dtype)
 
     def __getitem__(
         self,

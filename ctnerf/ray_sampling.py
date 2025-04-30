@@ -7,7 +7,7 @@ import jax.numpy as jnp
 def uniform_sampling(
     rand_key: jax.Array,
     n_samples: int,
-    ray_bounds: jax.Array,  # noqa: ARG001
+    ray_bounds: jax.Array,
     plateau_ratio: float,  # noqa: ARG001
 ) -> jax.Array:
     """Sample n_samples points evenly along the ray.
@@ -23,11 +23,11 @@ def uniform_sampling(
 
     """
     interval_size = 2 / n_samples
-    uniform_samples = jnp.arange(0, n_samples)
+    uniform_samples = jnp.arange(0, n_samples, dtype=ray_bounds.dtype)
 
     # Rescale each row to [t_min, t_max)
     uniform_samples = uniform_samples * interval_size
-    perturbation = jax.random.uniform(rand_key, n_samples) * interval_size
+    perturbation = jax.random.uniform(rand_key, n_samples, dtype=ray_bounds.dtype) * interval_size
     return uniform_samples + perturbation
 
 
@@ -50,18 +50,23 @@ def cylinder_sampling(
 
     """
     interval_size = (ray_bounds[1] - ray_bounds[0]) / n_samples
-    uniform_samples = jnp.arange(0, n_samples)
+    uniform_samples = jnp.arange(0, n_samples, dtype=ray_bounds.dtype)
 
     # Rescale each row to [t_min, t_max)
     uniform_samples = uniform_samples * interval_size + ray_bounds[0]
-    perturbation = jax.random.uniform(rand_key, n_samples, maxval=interval_size)
+    perturbation = jax.random.uniform(
+        rand_key,
+        n_samples,
+        maxval=interval_size,
+        dtype=ray_bounds.dtype,
+    )
     return uniform_samples + perturbation
 
 
 def plateau_sampling(
     rand_key: jax.Array,
     n_samples: int,
-    ray_bounds: jax.Array,  # noqa: ARG001
+    ray_bounds: jax.Array,
     plateau_ratio: float,
 ) -> jax.Array:
     """Sample n_samples along the ray using a plateau distribution beginning at 0.
@@ -77,8 +82,10 @@ def plateau_sampling(
 
     """
     keys = jax.random.split(rand_key, 2)
-    x1 = jax.random.uniform(keys[0], n_samples) * plateau_ratio - (plateau_ratio / 2)
-    x2 = jax.random.normal(keys[1], n_samples)
+    x1 = jax.random.uniform(keys[0], n_samples, dtype=ray_bounds.dtype) * plateau_ratio - (
+        plateau_ratio / 2
+    )
+    x2 = jax.random.normal(keys[1], n_samples, dtype=ray_bounds.dtype)
     samples = x1 + x2
     samples = jnp.sort(samples, stable=False)
 
@@ -107,8 +114,10 @@ def plateau_cylinder_sampling(
 
     """
     keys = jax.random.split(rand_key, 2)
-    x1 = jax.random.uniform(keys[0], n_samples) * plateau_ratio - (plateau_ratio / 2)
-    x2 = jax.random.normal(keys[1], n_samples)
+    x1 = jax.random.uniform(keys[0], n_samples, dtype=ray_bounds.dtype) * plateau_ratio - (
+        plateau_ratio / 2
+    )
+    x2 = jax.random.normal(keys[1], n_samples, dtype=ray_bounds.dtype)
     samples = x1 + x2
     samples = jnp.sort(samples, stable=False)
 

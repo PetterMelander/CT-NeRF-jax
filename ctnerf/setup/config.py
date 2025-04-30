@@ -32,7 +32,7 @@ class TrainingConfig:
     sampling_seed: int  # seed for sampling functions
     batch_size: int  # batch size
     use_amp: bool  # use automatic mixed precision
-    dtypes: dict[str, jax.numpy.dtype]  # data type of params, compute, and output
+    dtypes: dict[str, jax.numpy.dtype]  # data type of params, compute, input, and output
     checkpoint_dir: Path  # directory to save checkpoints
     checkpoint_interval: int  # interval to save checkpoints
     xray_dir: Path  # directory containing X-ray images
@@ -96,7 +96,7 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         num_coarse_samples: int. Number of coarse samples
         coarse_sampling_function: str. Name of coarse sampling function, defined in ray_sampling.py
         num_fine_samples: int. Number of fine samples. If None, no fine model is used
-        dtype: str. Data type of the input tensors
+        dtype: str. Data type of the input arrays
         use_amp: bool. Whether to use automatic mixed precision
 
     - scaling:
@@ -136,6 +136,16 @@ def get_training_config(config_path: Path) -> TrainingConfig:
     slice_size_cm = metadata["spacing"][0] * metadata["size"][0] / 10
     ct_size = tuple([metadata["size"][0]] + metadata["size"])
 
+    allowed_dtypes = ("float32", "float16", "bfloat16")
+    for value in conf_dict["dtypes"].values():
+        if value not in allowed_dtypes:
+            msg = f"Unknown dtype: {value}"
+            raise ValueError(msg)
+    required_keys = ("compute_dtype", "param_dtype", "input_dtype", "output_dtype")
+    for key in required_keys:
+        if key not in conf_dict["dtypes"]:
+            msg = f"Missing dtype specification: {key}"
+            raise ValueError(msg)
     dtypes = {key: get_dtype(item) for key, item in conf_dict["dtypes"].items()}
 
     return TrainingConfig(
@@ -173,6 +183,8 @@ class InferenceConfig:
 
     attenuation_scaling_factor: float | None  # scaling factor to raise X-rays to the reciprocal of
     output_path: Path  # path to save the generated CT image
+    model: dict  # contains L, n_layers, layer_dim
+    checkpoint_dir: Path  # path to saved model params
     image_size: list[int, int, int] | None  # size of the output image
     voxel_spacing: list[float, float, float] | None  # voxel spacing of the output image
     image_origin: list[float, float, float] | None  # origin of the output image
@@ -201,7 +213,6 @@ def get_inference_config(config_path: Path) -> InferenceConfig:
 
     - checkpoint:
         checkpoint_dir: str. Directory to load the model checkpoint from
-        resume_epoch: int. Epoch to load the model from
 
     - output_dir: str. Directory to save the generated CT image
 
@@ -233,6 +244,9 @@ def get_inference_config(config_path: Path) -> InferenceConfig:
     with config_path.open("r") as f:
         conf_dict = yaml.load(f, Loader=yaml.SafeLoader)
 
+    # Get checkpoint dir
+    checkpoint_dir = get_model_dir() / conf_dict["checkpoint"]["checkpoint_dir"]
+
     # Get X-ray metadata
     if "xray_dir" in conf_dict:
         xray_metadata = get_dataset_metadata(get_xray_dir() / conf_dict["xray_dir"])
@@ -252,6 +266,8 @@ def get_inference_config(config_path: Path) -> InferenceConfig:
     return InferenceConfig(
         attenuation_scaling_factor=conf_dict["scaling"].get("attenuation_scaling_factor"),
         output_path=output_dir / conf_dict["output_name"],
+        checkpoint_dir=checkpoint_dir,
+        model=conf_dict["model"],
         chunk_size=conf_dict.get("chunk_size") or 4096 * 16,
         image_size=conf_dict.get("image_size"),
         voxel_spacing=conf_dict.get("voxel_spacing"),
