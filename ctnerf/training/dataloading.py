@@ -135,8 +135,8 @@ class XrayDataset(torch.utils.data.Dataset):
 
         """
         angles = []
-        intensities = np.array(0, dtype=np.float64)
-        pixel_indices = np.zeros(shape=(0, 2))
+        intensities = np.empty(shape=0, dtype=np.float64)
+        pixel_indices = np.empty(shape=(0, 2))
 
         for file, angle in tqdm(metadata["file_angle_map"].items(), "Loading dataset"):
             # Read image
