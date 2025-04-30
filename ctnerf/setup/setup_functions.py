@@ -98,7 +98,11 @@ def get_dtype_policy(conf: TrainingConfig) -> jmp.Policy:
         (jmp.Policy): The mixed precision policy.
 
     """
-    return jmp.Policy(**conf.dtypes)
+    return jmp.Policy(
+        param_dtype=conf.dtypes["param_dtype"],
+        compute_dtype=conf.dtypes["compute_dtype"],
+        output_dtype=conf.dtypes["output_dtype"],
+    )
 
 
 def get_loss_scaler(conf: TrainingConfig) -> jmp.LossScale:
@@ -114,7 +118,7 @@ def get_loss_scaler(conf: TrainingConfig) -> jmp.LossScale:
     dtypes = conf.dtypes
     if dtypes["compute_dtype"] == dtypes["output_dtype"]:
         return jmp.NoOpLossScale()
-    return jmp.DynamicLossScale(jax.numpy.asarray(2.**15))
+    return jmp.DynamicLossScale(jax.numpy.asarray(2.0**15))
 
 
 def get_aim_run(conf: TrainingConfig, run_hash: str) -> Run:

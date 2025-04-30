@@ -31,7 +31,6 @@ class TrainingConfig:
     learning_rate: float
     sampling_seed: int  # seed for sampling functions
     batch_size: int  # batch size
-    use_amp: bool  # use automatic mixed precision
     dtypes: dict[str, jax.numpy.dtype]  # data type of params, compute, input, and output
     checkpoint_dir: Path  # directory to save checkpoints
     checkpoint_interval: int  # interval to save checkpoints
@@ -96,8 +95,6 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         num_coarse_samples: int. Number of coarse samples
         coarse_sampling_function: str. Name of coarse sampling function, defined in ray_sampling.py
         num_fine_samples: int. Number of fine samples. If None, no fine model is used
-        dtype: str. Data type of the input arrays
-        use_amp: bool. Whether to use automatic mixed precision
 
     - scaling:
         attenuation_scaling_factor: float | None. Scaling factor to raise X-ray to the reciprocal of
@@ -158,7 +155,6 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         k=conf_dict["scaling"].get("k"),
         sampling_seed=conf_dict["training"]["seed"],
         batch_size=conf_dict["training"]["batch_size"],
-        use_amp=conf_dict["training"]["use_amp"],
         dtypes=dtypes,
         checkpoint_dir=checkpoint_dir,
         checkpoint_interval=conf_dict["checkpoint"]["checkpoint_interval"],

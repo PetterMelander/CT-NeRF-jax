@@ -137,6 +137,12 @@ def train(config_path: Path) -> None:
         for i, (start_positions, heading_vectors, intensities, ray_bounds) in enumerate(
             tqdm(dataloader),
         ):
+            start_positions, heading_vectors, intensities, ray_bounds = (
+                jnp.array(start_positions, dtype=conf.dtypes["input_dtype"]),
+                jnp.array(heading_vectors, dtype=conf.dtypes["input_dtype"]),
+                jnp.array(intensities, dtype=conf.dtypes["input_dtype"]),
+                jnp.array(ray_bounds, dtype=conf.dtypes["input_dtype"]),
+            )
             key, step_key = jax.random.split(key)
             loss, coarse_model, opt_state, scaler = step(
                 coarse_model,

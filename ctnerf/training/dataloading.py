@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any
 
+import jax.numpy as jnp
 import numpy as np
 import SimpleITK as sitk
 import torch
@@ -86,6 +87,8 @@ class XrayDataset(torch.utils.data.Dataset):
         )
 
         # Array setup
+        if dtype == jnp.bfloat16:
+            dtype = np.float16  # numpy does not support bfloat. Will cast to bfloat in train loop
         self.start_positions = np.array(self.start_positions).astype(dtype)
         self.heading_vectors = np.array(self.heading_vectors).astype(dtype)
         self.intensities = self.intensities.astype(dtype)
