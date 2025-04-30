@@ -1,5 +1,7 @@
 """Contains the MLP model used to generate CT images."""
 
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 import jmp
@@ -86,6 +88,7 @@ def exu(params: dict[str, jax.Array], x: jax.Array) -> jax.Array:
     return (x - params["b"]) @ jnp.exp(params["w"])
 
 
+@partial(jax.vmap, in_axes=(None, 0, None))
 def forward(
     params: tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]], dict],
     coords: jax.Array,
@@ -123,9 +126,6 @@ def forward(
     # no relu on final layer
     final_layer = policy.cast_to_compute(post_concat_layers[-1])
     return policy.cast_to_output((jnp.dot(final_layer["w"], x) + final_layer["b"]).squeeze())
-
-
-forward = jax.vmap(forward, in_axes=(None, 0, None))
 
 
 def loss_fn(
@@ -168,7 +168,7 @@ def _positional_encoding(coords: jax.Array, L: int, policy: jmp.Policy) -> jax.A
     model to capture spatial relationships.
 
     Args:
-        coords (jax.Array): A tensor of shape (3,) representing the input
+        coords (jax.Array): An array of shape (3,) representing the input
             coordinates for which the positional encoding is to be computed.
         L (int): The number of frequency bands to use for the encoding.
         policy (jmp.Policy): Mixed precision policy for type casting.

@@ -124,10 +124,10 @@ def array_to_sitk(
     origin: tuple[float, float, float] | None = None,
     spacing: tuple[float, float, float] | None = None,
 ) -> sitk.Image:
-    """Convert a tensor to a sitk image.
+    """Convert a array to a sitk image.
 
     Args:
-        image_array (np.ndarray): The tensor to convert to a sitk image.
+        image_array (np.ndarray): The array to convert to a sitk image.
         metadata (dict, optional): Metadata to add to the image. Defaults to None.
         direction (tuple[float], optional): Direction of the image. Defaults to None.
         origin (tuple[float, float, float], optional): Origin of the image. Defaults to None.

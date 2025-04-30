@@ -74,7 +74,7 @@ def get_rays(
 
     # rotate to account for angle
     rotation_matrix, heading_vector = _create_z_rotation_matrix(angle)
-    start_pos = jnp.matmul(rotation_matrix, normalized_pos) # TODO: check that this is correct
+    start_pos = jnp.matmul(rotation_matrix, normalized_pos)
     ray_bounds = _get_ray_bounds(start_pos, heading_vector)
 
     return start_pos, heading_vector, ray_bounds

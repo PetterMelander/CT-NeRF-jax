@@ -23,7 +23,7 @@ from ctnerf.setup.config import TrainingConfig, get_training_config
 def train(config_path: Path) -> None:
     """Train the model."""
     conf = get_training_config(config_path)
-    policy = setup_functions.get_dtype_policy(conf)
+    model_policy = setup_functions.get_dtype_policy(conf)
     scaler = setup_functions.get_loss_scaler(conf)
     key = jax.random.key(conf.sampling_seed)
     coarse_model = setup_functions.get_model(conf)
@@ -75,7 +75,7 @@ def train(config_path: Path) -> None:
             conf.s,
             conf.k,
             conf.slice_size_cm,
-            policy,
+            model_policy,
         )
 
     def batch_loss_fn(
@@ -100,8 +100,6 @@ def train(config_path: Path) -> None:
         )
         return scaler.scale(jnp.sum(losses))
 
-    value_and_grad_batch = jax.value_and_grad(batch_loss_fn)
-
     @jax.jit
     def step(
         params: optax.Params,
@@ -113,7 +111,7 @@ def train(config_path: Path) -> None:
         batch_ray_bounds: jax.Array,
         scaler: jmp.LossScale,
     ) -> tuple[jax.Array, optax.Params, optax.OptState]:
-        total_batch_loss, grads = value_and_grad_batch(
+        total_batch_loss, grads = jax.value_and_grad(batch_loss_fn)(
             params,
             step_rand_key,
             batch_start_positions,
@@ -130,7 +128,8 @@ def train(config_path: Path) -> None:
         next_params, next_opt_state = jmp.select_tree(
             grads_finite,
             (next_params, next_opt_state),
-            (params, opt_state))
+            (params, opt_state),
+        )
 
         return total_batch_loss, next_params, next_opt_state, next_scaler
 
