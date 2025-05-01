@@ -6,8 +6,6 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
-from ctnerf import ray_sampling
-
 
 def beer_lambert_law(
     attenuation_coeffs: jax.Array,
@@ -157,9 +155,10 @@ def get_fine_samples(
     heading_vector: jax.Array,
     ray_bounds: jax.Array,
     coarse_sample_ts: jax.Array,
-    coarse_sample_values: jax.Array,
+    coarse_attenuation_preds: jax.Array,
     coarse_sampling_distances: jax.Array,
     n_samples: int,
+    sampling_function: Callable[[jax.Array, int, jax.Array, jax.Array], jax.Array],
 ) -> tuple[jax.Array, jax.Array]:
     """Get the fine samples along the ray.
 
@@ -173,20 +172,23 @@ def get_fine_samples(
         ray_bounds (jax.Array): shape (2,). Ray bounds.
         coarse_sample_ts (jax.Array): shape (n_samples,). Contains the t values for the coarse
             samples.
-        coarse_sample_values (jax.Array): shape (n_samples,). Contains the coarse model's
+        coarse_attenuation_preds (jax.Array): shape (n_samples,). Contains the coarse model's
             outputs for the coarse samples.
         coarse_sampling_distances (jax.Array): shape (n_samples,). Contains the sampling
             distances of the coarse samples.
         n_samples (int): number of samples
+        sampling_function (Callable[[jax.Array, int, jax.Array, jax.Array], jax.Array]): function
+            for performing the fine sampling of points along the ray.
+
     Returns:
         jax.Array: shape (n_samples,). Contains the sampled t's
         jax.Array: shape (n_samples, 3). Contains the distances between adjacent samples.
 
     """
-    t_samples = ray_sampling.edge_focused_fine_sampling(
+    t_samples = sampling_function(
         rand_key,
         n_samples,
-        coarse_sample_values,
+        coarse_attenuation_preds,
         coarse_sampling_distances,
     )
 

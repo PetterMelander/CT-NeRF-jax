@@ -8,7 +8,6 @@ from pathlib import Path
 import jax
 import yaml
 
-from ctnerf import ray_sampling
 from ctnerf.utils import (
     get_ct_dir,
     get_dataset_metadata,
@@ -28,8 +27,8 @@ class TrainingConfig:
     k: float | None  # offset for X-ray intensities
 
     # Training
+    seed: int  # seed for model initialization and ray sampling
     learning_rate: float
-    sampling_seed: int  # seed for sampling functions
     batch_size: int  # batch size
     dtypes: dict[str, jax.numpy.dtype]  # data type of params, compute, input, and output
     checkpoint_dir: Path  # directory to save checkpoints
@@ -39,19 +38,16 @@ class TrainingConfig:
     num_workers: int  # number of dataloader workers
 
     # Model hyperparameters
-    model: dict  # contains L, n_layers, layer_dim
-    seed: int  # seed for model initialization
+    model: dict  # contains L, n_layers, layer_dim for both coarse and fine
 
     # Coarse model
     n_coarse_samples: int  # number of coarse samples
     plateau_ratio: float | None  # ratio of plateau width to standard deviation
-    coarse_sampling_function: Callable[  # TODO: remove?
-        [jax.Array, int, jax.Array, float],
-        jax.Array,
-    ]  # sampling func
+    coarse_sampling_function: str  # name of coarse sampling function
 
     # Fine model
     n_fine_samples: int | None  # number of fine samples
+    fine_sampling_function: str | None  # name of fine sampling function
 
     # Evaluation
     ct_size: tuple[int, int, int]  # size of the CT image to create for evaluation
@@ -90,12 +86,12 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         resume_epoch: int. Epoch to load the model from
 
     - training:
-        seed: int. Seed for sampling functions
+        seed: int. Seed for mode initialization and ray sampling
         lr: float. Learning rate
         batch_size: int. Batch size
         num_coarse_samples: int. Number of coarse samples
         coarse_sampling_function: str. Name of coarse sampling function, defined in ray_sampling.py
-        num_fine_samples: int. Number of fine samples. If None, no fine model is used
+        num_fine_samples: int. Number of fine samples. If 0, no fine model is used
 
     - scaling:
         attenuation_scaling_factor: float | None. Scaling factor to raise X-ray to the reciprocal of
@@ -151,13 +147,12 @@ def get_training_config(config_path: Path) -> TrainingConfig:
 
     return TrainingConfig(
         conf_dict=conf_dict,
-        seed=conf_dict["model"]["seed"],
         num_workers=conf_dict["data"]["num_workers"],
         learning_rate=conf_dict["training"]["lr"],
         attenuation_scaling_factor=conf_dict["scaling"].get("attenuation_scaling_factor"),
         s=conf_dict["scaling"].get("s"),
         k=conf_dict["scaling"].get("k"),
-        sampling_seed=conf_dict["training"]["seed"],
+        seed=conf_dict["training"]["seed"],
         batch_size=conf_dict["training"]["batch_size"],
         dtypes=dtypes,
         checkpoint_dir=checkpoint_dir,
@@ -166,10 +161,8 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         xray_dir=xray_dir,
         model=conf_dict["model"],
         n_coarse_samples=conf_dict["training"]["num_coarse_samples"],
-        coarse_sampling_function=getattr(
-            ray_sampling,
-            conf_dict["training"]["coarse_sampling_function"],
-        ),
+        coarse_sampling_function=conf_dict["training"]["coarse_sampling_function"],
+        fine_sampling_function=conf_dict["training"].get("fine_sampling_function", ""),
         plateau_ratio=conf_dict["training"].get("plateau_ratio"),
         n_fine_samples=conf_dict["training"].get("num_fine_samples"),
         ct_size=ct_size,

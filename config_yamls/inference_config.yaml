@@ -6,15 +6,15 @@
   "n_layers": 8 # number of layers in the trained model
   "layer_dim": 128 # dimension of the layers
   "L": 20 # number of frequencies to use for the positional encoding
+  "seed": 0
 
 
 "checkpoint":
-  "checkpoint_dir": "scaling_test/reduced_attenuation/20250201-120019" # directory to load the model checkpoint from
-  "resume_epoch": 39 # epoch to load the model from
+  "checkpoint_dir": "scaling_test/reduced_attenuation/20250428-213824/checkpoint_23" # directory to load the model checkpoint from
 
 
-"output_dir": "readme" # directory to save the generated CT image
-"output_name": "readme_small.nrrd" # name of the generated CT image
+"output_dir": "test_jax" # directory to save the generated CT image
+"output_name": "test_jax.nrrd" # name of the generated CT image
 "xray_dir": "test" # directory containing the X-ray images, optional if proper metadata is available
 
 
@@ -44,4 +44,6 @@
 "chunk_size": 65536 # number of coordinate points to process in each batch to avoid OOM errors
 
 scaling:
-  attenuation_scaling_factor: 7.5 # scaling factor to raise X-ray images to the reciprocal of
+  # attenuation_scaling_factor: 7.5 # scaling factor to raise X-ray images to the reciprocal of
+  s: 1 # scaling factor for logged intensity values
+  k: 0.1 # offset for logged intensity values

@@ -1,38 +1,43 @@
-name: "more_samples" # name of the run
+name: "testing_training_loop" # name of the run
 
 
 data:
-  xray_dir: "exp_scaling" # directory containing the X-ray images
+  xray_dir: "testing" # directory containing the X-ray images
   source_ct_path: "nrrd/2 AC_CT_TBody.nrrd" # path to the source CT image, optional
-  num_workers: 10 # number of workers to use for data loading
+  num_workers: 8 # number of workers to use for data loading
 
 
 checkpoint:
-  # checkpoint_dir: scaling_test/reduced_attenuation/20250430-172721/checkpoint_15 # directory to load the model checkpoint from, optional
+  # checkpoint_dir: testing_training_loop/20250501-203223/checkpoint_0 # directory to load the model checkpoint from, optional
   checkpoint_interval: 1 # interval to save checkpoints
 
 
 model:
-  n_layers: 12 # number of layers in the model
-  layer_dim: 256 # dimension of the layers
-  L: 20 # number of frequencies to use for the positional encoding
-  seed: 101 # seed for model initialization
+  coarse:
+    n_layers: 4 # number of layers in the model
+    layer_dim: 64 # dimension of the layers
+    L: 20 # number of frequencies to use for the positional encoding
+  fine:
+    n_layers: 8 # number of layers in the model
+    layer_dim: 128 # dimension of the layers
+    L: 20 # number of frequencies to use for the positional encoding
 
 
 training:
-  seed: 13 # seed for sampling functions
+  seed: 13 # seed for training (model initialization + sampling)
   lr: 0.0001 # learning rate
   batch_size: 4096 # batch size
-  num_coarse_samples: 512 # number of coarse samples per ray
-  coarse_sampling_function: "plateau_cylinder_sampling" # name of sampling function in ray_sampling.py
+  num_coarse_samples: 64 # number of coarse samples per ray
+  num_fine_samples: 64 # number of fine samples per ray, can be 0
+  coarse_sampling_function: "uniform_sampling" # name of coarse sampling function in ray_sampling.py
+  fine_sampling_function: "percentile_fine_sampling"  # name of fine sampling function in ray_sampling.py
   plateau_ratio: 10 # ratio of plateau width to standard deviation
-  num_fine_samples: # number of fine samples per ray, optional
 
 
 dtypes:
   param_dtype: "float32"
   compute_dtype: "bfloat16"
-  input_dtype: "float32"
+  input_dtype: "float16"
   output_dtype: "float32"
 
 

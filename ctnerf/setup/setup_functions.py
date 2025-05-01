@@ -17,21 +17,35 @@ from ctnerf.utils import get_xray_dir
 
 def get_model(
     conf: TrainingConfig,
+    *,
+    fine: bool = False,
+    key: jax.Array | None = None,
 ) -> tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]]]:
     """Get the CT-NeRF model and send it to the specified device.
 
     Args:
         conf (TrainingConfig): The configuration dataclass.
+        fine (bool): Whether to use the fine model configuration.
+        key (jax.Array): The random key used for initialization.
 
     Returns:
         (tuple[list[dict[str, jax.Array]], list[dict[str, jax.Array]]]): The CT-NeRF model.
 
     """
+    if key is None:
+        key = jax.random.key(0)
+    if fine:
+        return init_params(
+            key=key,
+            n_layers=conf.model["fine"]["n_layers"],
+            layer_dim=conf.model["fine"]["layer_dim"],
+            L=conf.model["fine"]["L"],
+        )
     return init_params(
-        key=jax.random.key(conf.model["seed"]),
-        n_layers=conf.model["n_layers"],
-        layer_dim=conf.model["layer_dim"],
-        L=conf.model["L"],
+        key=key,
+        n_layers=conf.model["coarse"]["n_layers"],
+        layer_dim=conf.model["coarse"]["layer_dim"],
+        L=conf.model["coarse"]["L"],
     )
 
 

@@ -137,7 +137,7 @@ def loss_fn(
     k: float | None,
     slice_size_cm: float,
     policy: jmp.Policy,
-) -> jax.Array:
+) -> tuple[jax.Array, jax.Array]:
     """Calculate the mean squared error loss between predicted and ground truth intensities.
 
     Args:
@@ -151,12 +151,14 @@ def loss_fn(
         policy (jmp.Policy): Mixed precision policy for type casting.
 
     Returns:
-        Mean squared error loss between predicted and ground truth intensities.
+        A tuple containing:
+        - The mean squared error loss between predicted and ground truth intensities
+        - The predicted attenuation coefficients
 
     """
     attenuation_preds = forward(params, coords, policy)
     intensity_pred = beer_lambert_law(attenuation_preds, sampling_distances, s, k, slice_size_cm)
-    return (intensity_pred - gt) ** 2
+    return (intensity_pred - gt) ** 2, attenuation_preds
 
 
 def _positional_encoding(coords: jax.Array, L: int, policy: jmp.Policy) -> jax.Array:  # noqa: N803

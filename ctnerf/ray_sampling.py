@@ -132,7 +132,7 @@ def plateau_cylinder_sampling(
 def fine_sampling(
     rand_key: jax.Array,
     n_samples: int,
-    coarse_sample_values: jax.Array,
+    coarse_attenuation_preds: jax.Array,
     coarse_sampling_distances: jax.Array,
 ) -> jax.Array:
     """Sample n_samples points along the ray using the density based sampling from the NeRF paper.
@@ -140,7 +140,7 @@ def fine_sampling(
     Args:
         rand_key (jax.Array): random key for JAX's random number generation.
         n_samples (int): number of samples
-        coarse_sample_values (jax.Array): shape (n_samples,). Contains the output values of the
+        coarse_attenuation_preds (jax.Array): shape (n_samples,). Contains the output values of the
             coarse model.
         coarse_sampling_distances (jax.Array): shape (n_samples,). Contains the sampling
             distances of the coarse sampling
@@ -151,14 +151,14 @@ def fine_sampling(
     keys = jax.random.split(rand_key, 2)
 
     # compute a "cdf" of the intensity found by the coarse model, accounting for sampling distances
-    pdf = coarse_sample_values * coarse_sampling_distances
+    pdf = coarse_attenuation_preds * coarse_sampling_distances
     pdf = pdf / jnp.sum(pdf)
     cdf = jnp.cumsum(pdf)
     cdf.at[-1].set(1 + 1e-5)  # to avoid rounding causing index out of bounds if x is close to 1
 
     # inverse transform sampling
     # each random x will fall between two sampling distances, lower and upper
-    x = jax.random.uniform(keys[0], n_samples)
+    x = jax.random.uniform(keys[0], n_samples, dtype=coarse_sampling_distances.dtype)
     inds = jnp.searchsorted(cdf, x, side="left")
     cum_sampling_distances = jnp.cumsum(coarse_sampling_distances)
     cum_sampling_distances = jnp.concatenate([jnp.array([0]), cum_sampling_distances])
@@ -166,14 +166,14 @@ def fine_sampling(
     upper = cum_sampling_distances[inds + 1]
 
     # uniformly sample between lower and upper
-    t = jax.random.uniform(keys[1], n_samples)
+    t = jax.random.uniform(keys[1], n_samples, dtype=coarse_sampling_distances.dtype)
     return lower + t * (upper - lower)
 
 
 def edge_focused_fine_sampling(
     rand_key: jax.Array,
     n_samples: int,
-    coarse_sample_values: jax.Array,
+    coarse_attenuation_preds: jax.Array,
     coarse_sampling_distances: jax.Array,
 ) -> jax.Array:
     """Edge focused fine sampling.
@@ -184,7 +184,7 @@ def edge_focused_fine_sampling(
     Args:
         rand_key (jax.Array): random key for JAX's random number generation.
         n_samples (int): number of samples
-        coarse_sample_values (jax.Array): shape (n_samples,). Contains the output values of the
+        coarse_attenuation_preds (jax.Array): shape (n_samples,). Contains the output values of the
             coarse model.
         coarse_sampling_distances (jax.Array): shape (n_samples,). Contains the sampling
             distances of the coarse model.
@@ -196,7 +196,7 @@ def edge_focused_fine_sampling(
     keys = jax.random.split(rand_key, 2)
 
     # compute a "cdf" of the intensity found by the coarse model, accounting for sampling distances
-    diff = jnp.abs(jnp.diff(coarse_sample_values, append=0))
+    diff = jnp.abs(jnp.diff(coarse_attenuation_preds, append=0))
     pdf = diff / coarse_sampling_distances
     pdf = pdf / jnp.sum(pdf)
     cdf = jnp.cumsum(pdf)
@@ -204,7 +204,7 @@ def edge_focused_fine_sampling(
 
     # inverse transform sampling
     # each random x will fall between two sampling distances, lower and upper
-    x = jax.random.uniform(keys[0], n_samples)
+    x = jax.random.uniform(keys[0], n_samples, dtype=coarse_sampling_distances.dtype)
     inds = jnp.searchsorted(cdf, x, side="left")
     cum_sampling_distances = jnp.cumsum(coarse_sampling_distances)
     cum_sampling_distances = jnp.concatenate([jnp.array([0]), cum_sampling_distances])
@@ -212,5 +212,50 @@ def edge_focused_fine_sampling(
     upper = cum_sampling_distances[inds + 1]
 
     # uniformly sample between lower and upper
-    t = jax.random.uniform(keys[1], n_samples)
+    t = jax.random.uniform(keys[1], n_samples, dtype=coarse_sampling_distances.dtype)
     return lower + t * (upper - lower)
+
+
+def percentile_fine_sampling(
+    rand_key: jax.Array,
+    n_samples: int,
+    coarse_attenuation_preds: jax.Array,
+    coarse_sampling_distances: jax.Array,
+) -> jax.Array:
+    """Percentile based fine sampling.
+
+    Sample n_samples points along the ray using a sampling strategy based on percentiles of ray
+    attenuation found by the coarse model. Samples uniformly between the distance of 1st percentile
+    and the distance of the 99th percentile, thus hopefully avoiding sampling in the air, allowing
+    for denser sampling of the subject.
+
+    Args:
+        rand_key (jax.Array): random key for JAX's random number generation.
+        n_samples (int): number of samples
+        coarse_attenuation_preds (jax.Array): shape (n_samples,). Contains the output values of the
+            coarse model.
+        coarse_sampling_distances (jax.Array): shape (n_samples,). Contains the sampling
+            distances of the coarse model.
+
+    Returns:
+        jax.Array: shape (n_samples,). Contains the sampled t's
+
+    """
+    percentile = jnp.array(0.99)  # should probably not be hard coded
+
+    # compute a "cdf" of the intensity found by the coarse model, accounting for sampling distances
+    pdf = coarse_attenuation_preds * coarse_sampling_distances
+    pdf = pdf / jnp.sum(pdf)
+    cdf = jnp.cumsum(pdf)
+    cum_sampling_distances = jnp.cumsum(coarse_sampling_distances)
+    lower_idx = jnp.searchsorted(cdf, 1 - percentile, side="left")
+    upper_idx = jnp.searchsorted(cdf, percentile, side="right")
+    lower_distance = cum_sampling_distances[lower_idx]
+    upper_distance = cum_sampling_distances[upper_idx]
+    return jax.random.uniform(
+        rand_key,
+        n_samples,
+        minval=lower_distance,
+        maxval=upper_distance,
+        dtype=coarse_sampling_distances.dtype,
+    )
