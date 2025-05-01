@@ -179,8 +179,8 @@ def _positional_encoding(coords: jax.Array, L: int, policy: jmp.Policy) -> jax.A
 
     """
     dtype = (
-        jnp.float32 if policy.compute_dtype == jnp.float16 else policy.compute_dtype
-    )  # float16 will overflow if L >= 15
+        jnp.float32 if policy.compute_dtype == jnp.float16 and L > 15 else policy.compute_dtype  # noqa: PLR2004
+    )  # float16 will overflow if L >= 16
     freq_bands = jnp.power(2.0, jnp.arange(L, dtype=dtype)) * jnp.pi
     angles = jnp.expand_dims(coords, axis=-1) * jnp.expand_dims(freq_bands, axis=0)
     angles = policy.cast_to_compute(angles.reshape(-1))

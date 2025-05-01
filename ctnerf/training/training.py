@@ -208,8 +208,10 @@ def _eval(
         mae = np.mean(np.abs(generated_ct - source_ct_image))
         aim_run.track(mae, name="mae", context={"model": tag})
 
-        ct_slice = generated_ct[:, :, generated_ct.shape[2] // 2]
-        image = PILImage.fromarray((ct_slice.astype(np.int32) + 1024).astype(np.uint32))
+        ct_slice = generated_ct[::-1, :, generated_ct.shape[2] // 2]
+        image = PILImage.fromarray(
+            ((ct_slice.astype(np.float32) + 1024) / 4095 * 255).astype(np.uint8),
+        )
         aim_run.track(
             Image(image),
             name="cross section",
