@@ -132,6 +132,10 @@ def get_aim_run(conf: TrainingConfig, run_hash: str) -> Run:
         (Run): The Aim run.
 
     """
-    run = Run(log_system_params=True) if run_hash == "" else Run(run_hash, log_system_params=True)
+    run = (
+        Run(log_system_params=True)
+        if run_hash == ""
+        else Run(run_hash, log_system_params=True)#, experiment=conf.conf_dict["name"])
+    )
     run["hparams"] = conf.conf_dict
     return run

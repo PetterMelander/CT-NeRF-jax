@@ -8,9 +8,8 @@ data:
 
 
 checkpoint:
-  checkpoint_dir: models/scaling_test/reduced_attenuation/20250430-172721/checkpoint_13 # directory to load the model checkpoint from, optional
+  checkpoint_dir: scaling_test/reduced_attenuation/20250430-172721/checkpoint_13 # directory to load the model checkpoint from, optional
   checkpoint_interval: 1 # interval to save checkpoints
-  # resume_epoch: 18 # epoch to resume training from, optional
 
 
 model:

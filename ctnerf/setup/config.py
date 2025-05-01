@@ -34,6 +34,7 @@ class TrainingConfig:
     dtypes: dict[str, jax.numpy.dtype]  # data type of params, compute, input, and output
     checkpoint_dir: Path  # directory to save checkpoints
     checkpoint_interval: int  # interval to save checkpoints
+    resume_training: bool  # whether or not this training is a resumption of an earlier one
     xray_dir: Path  # directory containing X-ray images
     num_workers: int  # number of dataloader workers
 
@@ -121,11 +122,13 @@ def get_training_config(config_path: Path) -> TrainingConfig:
     # Create checkpoint directory
     if conf_dict["checkpoint"].get("checkpoint_dir") is not None:
         checkpoint_dir = get_model_dir() / conf_dict["checkpoint"]["checkpoint_dir"]
+        resumed_training = True
     else:
         checkpoint_dir = (
             get_model_dir() / conf_dict["name"] / datetime.now().strftime("%Y%m%d-%H%M%S")
         )
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        resumed_training = False
 
     # Get X-rays and metadata
     xray_dir = get_xray_dir() / conf_dict["data"]["xray_dir"]
@@ -133,6 +136,7 @@ def get_training_config(config_path: Path) -> TrainingConfig:
     slice_size_cm = metadata["spacing"][0] * metadata["size"][0] / 10
     ct_size = tuple([metadata["size"][0]] + metadata["size"])
 
+    # Get dtypes
     allowed_dtypes = ("float32", "float16", "bfloat16")
     for value in conf_dict["dtypes"].values():
         if value not in allowed_dtypes:
@@ -158,6 +162,7 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         dtypes=dtypes,
         checkpoint_dir=checkpoint_dir,
         checkpoint_interval=conf_dict["checkpoint"]["checkpoint_interval"],
+        resume_training=resumed_training,
         xray_dir=xray_dir,
         model=conf_dict["model"],
         n_coarse_samples=conf_dict["training"]["num_coarse_samples"],

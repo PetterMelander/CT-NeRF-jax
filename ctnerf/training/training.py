@@ -33,20 +33,25 @@ def train(config_path: Path) -> None:
         "params": coarse_model,
         "opt_state": opt_state,
         "step": 0,
+        "run_hash": "",
     }
-    restored_state = checkpoints.restore_checkpoint(
-        ckpt_dir=conf.checkpoint_dir,
-        target=initial_state_dict,
-        prefix="checkpoint_",
-    )
-    if restored_state is not initial_state_dict:
+    if conf.resume_training:
+        if not conf.checkpoint_dir.exists():
+            msg = f"Checkpoint directory {conf.checkpoint_dir} does not exist"
+            raise FileNotFoundError(msg)
+        restored_state = checkpoints.restore_checkpoint(
+            ckpt_dir=conf.checkpoint_dir,
+            target=initial_state_dict,
+        )
         coarse_model = restored_state["params"]
         opt_state = restored_state["opt_state"]
         start_step = restored_state["step"] + 1
         run_hash = restored_state["run_hash"]
+        checkpoint_dir = conf.checkpoint_dir.parent
     else:
         start_step = 0
         run_hash = ""
+        checkpoint_dir = conf.checkpoint_dir
     aim_run = setup_functions.get_aim_run(conf, run_hash)
 
     def single_loss_fn(
@@ -171,7 +176,7 @@ def train(config_path: Path) -> None:
                 "run_hash": aim_run.hash,
             }
             checkpoints.save_checkpoint(
-                ckpt_dir=conf.checkpoint_dir,
+                ckpt_dir=checkpoint_dir,
                 target=state_to_save,
                 step=epoch,
                 prefix="checkpoint_",
