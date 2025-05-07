@@ -108,6 +108,7 @@ def forward(
         jax.Array: shape (1,). Output of the model.
 
     """
+    accum_dtype = jnp.bfloat16 if policy.compute_dtype == jnp.bfloat16 else jnp.float32
     coords = policy.cast_to_compute(coords)
     pre_concat_layers, post_concat_layers = params
     L = pre_concat_layers[0]["w"].shape[1] / 6  # noqa: N806
@@ -115,17 +116,21 @@ def forward(
 
     x = pos_enc
     for layer in pre_concat_layers:
-        layer = policy.cast_to_compute(layer)
-        x = jax.nn.relu(jnp.dot(layer["w"], x) + layer["b"])
+        layer, x = policy.cast_to_compute((layer, x))
+        x = jax.nn.relu(jnp.dot(layer["w"], x, preferred_element_type=accum_dtype) + layer["b"])
 
     x = jnp.concat([x, pos_enc])
     for layer in post_concat_layers[:-1]:
-        layer = policy.cast_to_compute(layer)
-        x = jax.nn.relu(jnp.dot(layer["w"], x) + layer["b"])
+        layer, x = policy.cast_to_compute((layer, x))
+        x = jax.nn.relu(jnp.dot(layer["w"], x, preferred_element_type=accum_dtype) + layer["b"])
 
     # no relu on final layer
-    final_layer = policy.cast_to_compute(post_concat_layers[-1])
-    return policy.cast_to_output((jnp.dot(final_layer["w"], x) + final_layer["b"]).squeeze())
+    final_layer, x = policy.cast_to_compute((post_concat_layers[-1], x))
+    return policy.cast_to_output(
+        (
+            jnp.dot(final_layer["w"], x, preferred_element_type=accum_dtype) + final_layer["b"]
+        ).squeeze(),
+    )
 
 
 def loss_fn(
