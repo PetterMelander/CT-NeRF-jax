@@ -161,7 +161,7 @@ def fine_sampling(
     x = jax.random.uniform(keys[0], n_samples, dtype=coarse_sampling_distances.dtype)
     inds = jnp.searchsorted(cdf, x, side="left")
     cum_sampling_distances = jnp.cumsum(coarse_sampling_distances)
-    cum_sampling_distances = jnp.concatenate([jnp.array([0]), cum_sampling_distances])
+    cum_sampling_distances = jnp.concatenate([jnp.array([0.]), cum_sampling_distances])
     lower = cum_sampling_distances[inds]
     upper = cum_sampling_distances[inds + 1]
 
@@ -196,7 +196,7 @@ def edge_focused_fine_sampling(
     keys = jax.random.split(rand_key, 2)
 
     # compute a "cdf" of the intensity found by the coarse model, accounting for sampling distances
-    diff = jnp.abs(jnp.diff(coarse_attenuation_preds, append=0))
+    diff = jnp.abs(jnp.diff(coarse_attenuation_preds, append=0.))
     pdf = diff / coarse_sampling_distances
     pdf = pdf / jnp.sum(pdf)
     cdf = jnp.cumsum(pdf)
@@ -207,7 +207,7 @@ def edge_focused_fine_sampling(
     x = jax.random.uniform(keys[0], n_samples, dtype=coarse_sampling_distances.dtype)
     inds = jnp.searchsorted(cdf, x, side="left")
     cum_sampling_distances = jnp.cumsum(coarse_sampling_distances)
-    cum_sampling_distances = jnp.concatenate([jnp.array([0]), cum_sampling_distances])
+    cum_sampling_distances = jnp.concatenate([jnp.array([0.]), cum_sampling_distances])
     lower = cum_sampling_distances[inds]
     upper = cum_sampling_distances[inds + 1]
 
@@ -241,7 +241,7 @@ def percentile_fine_sampling(
         jax.Array: shape (n_samples,). Contains the sampled t's
 
     """
-    percentile = jnp.array(0.99)  # should probably not be hard coded
+    percentile = jnp.array(0.975)  # should probably not be hard coded
 
     # compute a "cdf" of the intensity found by the coarse model, accounting for sampling distances
     pdf = coarse_attenuation_preds * coarse_sampling_distances
@@ -252,10 +252,5 @@ def percentile_fine_sampling(
     upper_idx = jnp.searchsorted(cdf, percentile, side="right")
     lower_distance = cum_sampling_distances[lower_idx]
     upper_distance = cum_sampling_distances[upper_idx]
-    return jax.random.uniform(
-        rand_key,
-        n_samples,
-        minval=lower_distance,
-        maxval=upper_distance,
-        dtype=coarse_sampling_distances.dtype,
-    )
+    bounds = jnp.array([lower_distance, upper_distance])
+    return cylinder_sampling(rand_key, n_samples, bounds, 0)

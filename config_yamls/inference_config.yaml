@@ -1,16 +1,14 @@
-"device": "cuda:0" # device to run the model inference on
-
-
-"model_type": "coarse" # 'coarse' or 'fine'
+"model_type": "fine" # 'coarse' or 'fine'
 "model":
-  "n_layers": 8 # number of layers in the trained model
-  "layer_dim": 128 # dimension of the layers
-  "L": 20 # number of frequencies to use for the positional encoding
-  "seed": 0
+  "fine":
+    "n_layers": 12 # number of layers in the trained model
+    "layer_dim": 256 # dimension of the layers
+    "L": 20 # number of frequencies to use for the positional encoding
+  # "seed": 0
 
 
 "checkpoint":
-  "checkpoint_dir": "scaling_test/reduced_attenuation/20250428-213824/checkpoint_23" # directory to load the model checkpoint from
+  "checkpoint_dir": "fine_sampling/20250503-093354/checkpoint_47" # directory to load the model checkpoint from
 
 
 "output_dir": "test_jax" # directory to save the generated CT image

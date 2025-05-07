@@ -1,6 +1,5 @@
 """Defines configurations used for training and inferencing with the CT-NeRF model."""
 
-from _collections_abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +35,7 @@ class TrainingConfig:
     resume_training: bool  # whether or not this training is a resumption of an earlier one
     xray_dir: Path  # directory containing X-ray images
     num_workers: int  # number of dataloader workers
+    grad_accum_steps: int  # number of gradient accumulation steps
 
     # Model hyperparameters
     model: dict  # contains L, n_layers, layer_dim for both coarse and fine
@@ -165,6 +165,7 @@ def get_training_config(config_path: Path) -> TrainingConfig:
         fine_sampling_function=conf_dict["training"].get("fine_sampling_function", ""),
         plateau_ratio=conf_dict["training"].get("plateau_ratio"),
         n_fine_samples=conf_dict["training"].get("num_fine_samples"),
+        grad_accum_steps=conf_dict["training"]["gradient_accumulation_steps"],
         ct_size=ct_size,
         slice_size_cm=slice_size_cm,
         source_ct_path=get_ct_dir() / conf_dict["data"]["source_ct_path"],
@@ -176,6 +177,7 @@ class InferenceConfig:
     """Configuration for the CT-NeRF model."""
 
     attenuation_scaling_factor: float | None  # scaling factor to raise X-rays to the reciprocal of
+    model_type: str  # 'fine' or 'coarse'
     output_path: Path  # path to save the generated CT image
     model: dict  # contains L, n_layers, layer_dim
     checkpoint_dir: Path  # path to saved model params
@@ -258,6 +260,7 @@ def get_inference_config(config_path: Path) -> InferenceConfig:
     output_dir.mkdir(exist_ok=True, parents=True)
 
     return InferenceConfig(
+        model_type=conf_dict["model_type"],
         attenuation_scaling_factor=conf_dict["scaling"].get("attenuation_scaling_factor"),
         output_path=output_dir / conf_dict["output_name"],
         checkpoint_dir=checkpoint_dir,

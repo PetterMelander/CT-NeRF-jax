@@ -132,7 +132,7 @@ def get_loss_scaler(conf: TrainingConfig) -> jmp.LossScale:
     dtypes = conf.dtypes
     if dtypes["compute_dtype"] == dtypes["output_dtype"]:
         return jmp.NoOpLossScale()
-    return jmp.DynamicLossScale(jax.numpy.asarray(2.0**15))
+    return jmp.DynamicLossScale(jax.numpy.asarray(2.0**60))
 
 
 def get_aim_run(conf: TrainingConfig, run_hash: str) -> Run:

@@ -33,6 +33,7 @@ class ModelState(NamedTuple):
     """
 
     params: optax.Params
+    accum_grads: optax.Params
     opt_state: optax.OptState
     scaler: jmp.LossScale
 
@@ -48,6 +49,11 @@ class TrainState(NamedTuple):
 
     coarse: ModelState
     fine: ModelState | None  # Fine model is optional
+    accumulated_steps: jax.Array
+
+
+def _zero_grads(grads: optax.Params) -> optax.Params:
+    return jax.tree.map(jnp.zeros_like, grads)
 
 
 def _initialize_or_restore_state(
@@ -67,6 +73,7 @@ def _initialize_or_restore_state(
 
     initial_coarse_model_state = ModelState(
         params=initial_coarse_params,
+        accum_grads=_zero_grads(initial_coarse_params),
         opt_state=initial_coarse_opt_state,
         scaler=initial_coarse_scaler_state,
     )
@@ -83,6 +90,7 @@ def _initialize_or_restore_state(
 
         initial_fine_model_state = ModelState(
             params=initial_fine_params,
+            accum_grads=_zero_grads(initial_coarse_params),
             opt_state=initial_fine_opt_state,
             scaler=initial_fine_scaler_state,
         )
@@ -90,24 +98,24 @@ def _initialize_or_restore_state(
     initial_train_state = TrainState(
         coarse=initial_coarse_model_state,
         fine=initial_fine_model_state,
+        accumulated_steps=jnp.array(0),
     )
-
-    initial_save_state = {
-        "coarse_params": initial_coarse_params,
-        "coarse_opt_state": initial_coarse_opt_state,
-        "coarse_scaler_scale": 2.0**15,
-        "fine_params": initial_fine_params if initial_fine_model_state else None,
-        "fine_opt_state": initial_fine_opt_state if initial_fine_model_state else None,
-        "fine_scaler_scale": 2.0**15 if initial_fine_model_state else None,
-        "step": 0,
-        "run_hash": "",
-    }
 
     start_step = 0
     run_hash = ""
     train_state = initial_train_state
 
     if conf.resume_training:
+        initial_save_state = {
+            "coarse_params": initial_coarse_params,
+            "coarse_opt_state": initial_coarse_opt_state,
+            "coarse_scaler_scale": 2.0**15,
+            "fine_params": initial_fine_params if initial_fine_model_state else None,
+            "fine_opt_state": initial_fine_opt_state if initial_fine_model_state else None,
+            "fine_scaler_scale": 2.0**15 if initial_fine_model_state else None,
+            "step": 0,
+            "run_hash": "",
+        }
         if not conf.checkpoint_dir.exists():
             msg = f"Checkpoint directory {conf.checkpoint_dir} does not exist"
             raise FileNotFoundError(msg)
@@ -124,6 +132,7 @@ def _initialize_or_restore_state(
             coarse_scaler = jmp.NoOpLossScale()
         coarse_model_state = ModelState(
             params=restored_state["coarse_params"],
+            accum_grads=_zero_grads(restored_state["coarse_params"]),
             opt_state=restored_state["coarse_opt_state"],
             scaler=coarse_scaler,
         )
@@ -135,11 +144,16 @@ def _initialize_or_restore_state(
                 fine_scaler = jmp.NoOpLossScale()
             fine_model_state = ModelState(
                 params=restored_state["fine_params"],
+                accum_grads=_zero_grads(restored_state["fine_params"]),
                 opt_state=restored_state["fine_opt_state"],
                 scaler=fine_scaler,
             )
 
-        train_state = TrainState(coarse=coarse_model_state, fine=fine_model_state)
+        train_state = TrainState(
+            coarse=coarse_model_state,
+            fine=fine_model_state,
+            accumulated_steps=jnp.array(0),
+        )
         start_step = restored_state["step"] + 1
         run_hash = restored_state.get("run_hash", "")
 
@@ -317,8 +331,43 @@ def create_training_step(
         )
         return fine_scaler.scale(jnp.sum(loss))
 
+    def _apply_update_step(
+        current_params: optax.Params,
+        current_opt_state: optax.OptState,
+        grads: optax.Params,
+        scaler: jmp.LossScale,
+    ) -> tuple[optax.Params, optax.OptState, jmp.LossScale, optax.Params]:
+        """Logic for when accumulation count is reached: update params and zero grads."""
+        # Average gradients
+        # grads = jax.tree.map(lambda x: x / conf.grad_accum_steps, grads)  # noqa: ERA001
+
+        # Check finiteness and adjust scaler state
+        grads_finite = jmp.all_finite(grads)
+        next_scaler = scaler.adjust(grads_finite)
+
+        # Update optimizer state and params
+        updates, next_opt_state = optimizer.update(grads, current_opt_state)
+        next_params = optax.apply_updates(current_params, updates)
+        next_params, next_opt_state = jmp.select_tree(
+            grads_finite,
+            (next_params, next_opt_state),
+            (current_params, current_opt_state),
+        )
+
+        next_accumulated_grads = _zero_grads(grads)
+        return next_params, next_opt_state, next_scaler, next_accumulated_grads
+
+    def _accumulate_step(
+        current_params: optax.Params,
+        current_opt_state: optax.OptState,
+        grads: optax.Params,
+        scaler: jmp.LossScale,
+    ) -> tuple[optax.Params, optax.OptState, jmp.LossScale, optax.Params]:
+        """Logic for when just accumulating: return current state and non-zero grads."""
+        return current_params, current_opt_state, scaler, grads
+
     def _step_internal(
-        train_state: TrainState,
+        state: TrainState,
         step_rand_key: jax.Array,
         batch_start_positions: jax.Array,
         batch_heading_vectors: jax.Array,
@@ -330,70 +379,88 @@ def create_training_step(
         # Compute coarse loss and grads
         coarse_loss_vg_fn = jax.value_and_grad(batched_coarse_loss, has_aux=True)
         (coarse_loss, coarse_aux_batch), coarse_grads = coarse_loss_vg_fn(
-            train_state.coarse.params,
+            state.coarse.params,
             keys,
             batch_start_positions,
             batch_heading_vectors,
             batch_intensities,
             batch_ray_bounds,
-            train_state.coarse.scaler,
+            state.coarse.scaler,
         )
-        (coarse_loss, coarse_grads) = train_state.coarse.scaler.unscale((coarse_loss, coarse_grads))
+        (coarse_loss, coarse_grads) = state.coarse.scaler.unscale((coarse_loss, coarse_grads))
 
-        # Update coarse state
-        coarse_grads_finite = jmp.all_finite(coarse_grads)
-        next_coarse_scaler = train_state.coarse.scaler.adjust(coarse_grads_finite)
-        coarse_updates, next_coarse_opt_state = optimizer.update(
-            coarse_grads,
-            train_state.coarse.opt_state,
+        # Accumulate gradients
+        coarse_accum_grads = jax.tree.map(jax.lax.add, coarse_grads, state.coarse.accum_grads)
+
+        # Update params
+        perform_coarse_update = (state.accumulated_steps + 1) % conf.grad_accum_steps == 0
+        coarse_cond_operands = (
+            state.coarse.params,
+            state.coarse.opt_state,
+            coarse_accum_grads,
+            state.coarse.scaler,
         )
-        next_coarse_params = optax.apply_updates(train_state.coarse.params, coarse_updates)
-        next_coarse_params, next_coarse_opt_state = jmp.select_tree(
-            coarse_grads_finite,
-            (next_coarse_params, next_coarse_opt_state),
-            (train_state.coarse.params, train_state.coarse.opt_state),
+        next_coarse_params, next_coarse_opt_state, next_coarse_scaler, next_coarse_accum_grads = (
+            jax.lax.cond(
+                perform_coarse_update,
+                _apply_update_step,
+                _accumulate_step,
+                *coarse_cond_operands,
+            )
         )
 
         # Compute fine loss and grads
         fine_loss = jnp.nan
-        if train_state.fine is not None:
+        if state.fine is not None:
             fine_loss_vg_fn = jax.value_and_grad(batched_fine_loss)
             fine_loss, fine_grads = fine_loss_vg_fn(
-                train_state.fine.params,
+                state.fine.params,
                 coarse_aux_batch,
-                train_state.fine.scaler,
+                state.fine.scaler,
             )
-            (fine_loss, fine_grads) = train_state.fine.scaler.unscale((fine_loss, fine_grads))
+            (fine_loss, fine_grads) = state.fine.scaler.unscale((fine_loss, fine_grads))
 
-            # Update fine state
-            fine_grads_finite = jmp.all_finite(fine_grads)
-            next_fine_scaler = train_state.fine.scaler.adjust(fine_grads_finite)
-            fine_updates, next_fine_opt_state = optimizer.update(
-                fine_grads,
-                train_state.fine.opt_state,
+            # Accumulate gradients
+            fine_accum_grads = jax.tree.map(jax.lax.add, fine_grads, state.fine.accum_grads)
+
+            # Update params
+            perform_fine_update = (state.accumulated_steps + 1) % conf.grad_accum_steps == 0
+            fine_cond_operands = (
+                state.fine.params,
+                state.fine.opt_state,
+                fine_accum_grads,
+                state.fine.scaler,
             )
-            next_fine_params = optax.apply_updates(train_state.fine.params, fine_updates)
-            next_fine_params, next_fine_opt_state = jmp.select_tree(
-                fine_grads_finite,
-                (next_fine_params, next_fine_opt_state),
-                (train_state.fine.params, train_state.fine.opt_state),
+            next_fine_params, next_fine_opt_state, next_fine_scaler, next_fine_accum_grads = (
+                jax.lax.cond(
+                    perform_fine_update,
+                    _apply_update_step,
+                    _accumulate_step,
+                    *fine_cond_operands,
+                )
             )
 
         next_coarse_ms = ModelState(
             next_coarse_params,
+            next_coarse_accum_grads,
             next_coarse_opt_state,
             next_coarse_scaler,
         )
-        if train_state.fine is not None:
+        if state.fine is not None:
             next_fine_ms = ModelState(
                 next_fine_params,
+                next_fine_accum_grads,
                 next_fine_opt_state,
                 next_fine_scaler,
             )
         else:
             next_fine_ms = None
 
-        next_train_state = TrainState(coarse=next_coarse_ms, fine=next_fine_ms)
+        next_train_state = TrainState(
+            coarse=next_coarse_ms,
+            fine=next_fine_ms,
+            accumulated_steps=(state.accumulated_steps + 1) % conf.grad_accum_steps,
+        )
 
         return coarse_loss, fine_loss, next_train_state
 

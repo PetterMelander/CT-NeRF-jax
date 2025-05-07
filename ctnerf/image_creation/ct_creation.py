@@ -26,16 +26,15 @@ def generate_ct(conf: InferenceConfig) -> None:
     # Define image size and spacing, giving x the same value as y
     original_size = [conf.xray_metadata["size"][0]] + conf.xray_metadata["size"]
     original_spacing = [conf.xray_metadata["spacing"][0]] + conf.xray_metadata["spacing"]
-    coarse_model = setup_functions.get_model(conf)
-    initial_state_dict = {
-        "params": coarse_model,
-    }
+    fine = conf.model_type == "fine"
+    model = setup_functions.get_model(conf, fine=fine, key=jax.random.key(0))
+    initial_state_dict = {"fine_params": model} if fine else {"coarse_params": model}
     restored_state = checkpoints.restore_checkpoint(
         ckpt_dir=conf.checkpoint_dir,
         target=initial_state_dict,
         prefix="checkpoint_",
     )
-    coarse_model = restored_state["params"]
+    model = restored_state["fine_params"] if fine else restored_state["coarse_params"]
 
     # Determine image size and spacing
     if conf.voxel_spacing is not None:
@@ -52,7 +51,7 @@ def generate_ct(conf: InferenceConfig) -> None:
         image_size = conf.image_size
 
     output = run_inference(
-        coarse_model,
+        model,
         image_size,
         conf.chunk_size,
         conf.attenuation_scaling_factor,
